@@ -123,9 +123,8 @@ pnpm lefthook install
 
 ### 3.3. Secrets (後日、デプロイ時)
 
-**Settings → Secrets and variables → Actions** に:
-- `VERCEL_TOKEN` (Vercel 直デプロイする場合)
-- その他は Vercel 側 Environment Variables で管理
+CD は Vercel の Git 統合でデプロイするので、**GitHub Secrets は不要**。
+環境変数はすべて Vercel 側の Environment Variables で管理する。
 
 ### 3.4. Renovate / Dependabot (任意、Phase 2+)
 
@@ -133,7 +132,57 @@ pnpm lefthook install
 
 ---
 
-## 4. 日々の開発フロー
+## 4. デプロイ戦略 (Preview + 手動 CD)
+
+```
+feat/xxx ─PR→ main ─自動→ Vercel Preview   (Neon: ephemeral branch)
+                │
+                └ workflow_dispatch → production ─自動→ Vercel Production  (Neon: main branch)
+```
+
+### 4.1. Vercel 側の初回セットアップ
+
+1. Vercel にログインして `kanato-tk51/Tanren` を **Import**
+2. **Settings → Git → Production Branch** を `main` から **`production`** に変更
+   - これで main への push は Preview 扱いになる
+3. **Settings → Environment Variables** に `.env.example` のキーを登録
+   - `Production` / `Preview` / `Development` の 3 env に分けて入れる
+   - `DATABASE_URL` は Production のみ実値、Preview は Neon Integration が自動注入 (後述)
+   - `WEBAUTHN_RP_ID` / `WEBAUTHN_ORIGIN` / `NEXT_PUBLIC_APP_URL` は env ごとに変える
+4. **Integrations → Neon** を有効化
+   - Vercel Project と Neon Project を接続
+   - 「Automatic database branching for previews」を **ON**
+   - Preview ごとに Neon の ephemeral branch が自動作成、`DATABASE_URL` が自動注入される
+
+### 4.2. Neon 側の初回セットアップ
+
+1. Project 1 個 (`tanren`) を作成
+2. デフォルトの `main` branch が本番 DB
+3. Vercel Integration により Preview 用の branch が必要に応じて作られる
+4. 接続文字列をコピーして Vercel の **Production** 環境変数 `DATABASE_URL` に貼る
+
+### 4.3. 本番デプロイ手順 (日常運用)
+
+```
+1. feat ブランチで実装 → PR → main にマージ
+2. GitHub Actions で CI (typecheck / lint / test / build) が自動実行
+3. Vercel が main を検知 → Preview URL を生成 (commit ごと)
+4. Preview URL で動作確認
+5. 問題なければ:
+   GitHub → Actions → "deploy-prod" → Run workflow
+   → 入力欄に "deploy" と打って実行
+6. main が production に fast-forward push される
+7. Vercel が production を検知 → 本番デプロイ開始
+```
+
+### 4.4. ロールバック
+
+- Vercel ダッシュボード → Deployments → 古いコミットを Promote する (最速)
+- あるいは main で revert コミット → workflow_dispatch で deploy-prod を再実行
+
+---
+
+## 5. 日々の開発フロー
 
 ```bash
 # 1. 最新 main を取得
@@ -157,7 +206,7 @@ PR テンプレートのチェックを埋めて、CI が緑なら self-approve 
 
 ---
 
-## 5. トラブルシュート
+## 6. トラブルシュート
 
 | 症状 | 対処 |
 |---|---|
