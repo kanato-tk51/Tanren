@@ -95,7 +95,7 @@ type ThinkingStyle =
   | 'computation';
 
 type DifficultySpec =
-  | { kind: 'absolute'; level: 'junior' | 'mid' | 'senior' | 'staff' | 'principal' }
+  | { kind: 'absolute'; level: 'beginner' | 'junior' | 'mid' | 'senior' | 'staff' | 'principal' }
   | { kind: 'relative'; offset: -2 | -1 | 0 | +1 | +2 }   // 自分の平均から
   | { kind: 'numeric'; value: number /* 1-10 */ }
   | { kind: 'interview'; company_tier: 'faang' | 'startup' | 'generic' };
@@ -165,11 +165,22 @@ user_constraint: "必ず TLS 1.3 の挙動を含めて"
 
 ## 4.6. 難易度キャリブレーション
 
-### 4.6.1. 絶対難易度 (junior / mid / senior / staff / principal)
+### 4.6.1. 絶対難易度 (beginner / junior / mid / senior / staff / principal)
 
-プロンプトで LLM に具体的に指示:
+プロンプトで LLM にレベルごとの具体的な基準を指示:
 
 ```
+Beginner level means:
+- 用語の定義・基本的な仕組みを問う
+- 具体例と合わせて理解を確認する
+- コード例を読ませる場合も短く単純に
+- 他の概念に依存しない単一テーマ
+
+Junior level means:
+- 定義に加え、典型的な使い方を問う
+- よくある勘違い・罠を扱う
+- 簡単な応用シナリオを設定する
+
 Senior level means:
 - 前提知識を深く掘る (「なぜ TCP は輻輳制御をフロー制御と分離したか?」)
 - 複数概念の交差を問う (「TLS handshake と TCP Nagle の相互作用は?」)
@@ -280,7 +291,7 @@ Custom で「存在しない concept (例: `network.tcp.bbrv2`)」が出たら:
 - 自然言語入力 1 個 (フォーム UI は削る)
 - Haiku によるパース
 - 既存生成プロンプトへの `thinking_style` 注入
-- 絶対難易度のみサポート (`junior / mid / senior`)
+- 絶対難易度のみサポート (`beginner / junior / mid / senior`)
 
 ### 4.10.2. Phase 2 で追加
 

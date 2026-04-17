@@ -433,7 +433,7 @@
   ☑ OS  ☑ Network  ☐ Security ...
     ↓
 [レベル自己申告]
-  junior / mid / senior / staff
+  beginner / junior / mid / senior / staff
     ↓
 [初期診断テスト (3-5分, 20問)]
   各分野から数問 → 初期 mastery 設定
