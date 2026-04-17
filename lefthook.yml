@@ -1,0 +1,34 @@
+# Lefthook - Git hooks manager
+# 有効化: `pnpm lefthook install`
+# スキップ: 非推奨 (どうしても必要なら `LEFTHOOK=0 git commit ...`)
+# 参照: https://lefthook.dev/
+
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: "*.{ts,tsx,js,jsx,json,md,yaml,yml}"
+      run: pnpm prettier --write --ignore-unknown {staged_files}
+      stage_fixed: true
+
+    lint:
+      glob: "*.{ts,tsx,js,jsx}"
+      run: pnpm eslint --fix --max-warnings=0 {staged_files}
+      stage_fixed: true
+
+    typecheck:
+      glob: "*.{ts,tsx}"
+      run: pnpm typecheck
+
+pre-push:
+  commands:
+    test:
+      run: pnpm test -- --run
+
+commit-msg:
+  commands:
+    # Conventional Commits ざっくり検査 (type: description)
+    format:
+      run: |
+        head -n1 "{1}" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|build|ci|revert)(\(.+\))?!?: .+' \
+        || { echo "コミットメッセージは Conventional Commits 形式 (feat: xxx) で"; exit 1; }

@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: typecheck / lint / test / build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Skip if package.json is missing
+        id: has_pkg
+        run: |
+          if [ -f package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "package.json がまだ無いためスキップ (Phase 0 前)"
+          fi
+
+      - name: Install
+        if: steps.has_pkg.outputs.present == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        if: steps.has_pkg.outputs.present == 'true'
+        run: pnpm typecheck
+
+      - name: Lint
+        if: steps.has_pkg.outputs.present == 'true'
+        run: pnpm lint
+
+      - name: Test
+        if: steps.has_pkg.outputs.present == 'true'
+        run: pnpm test -- --run
+
+      - name: Build
+        if: steps.has_pkg.outputs.present == 'true'
+        env:
+          # ビルドに最低限必要な env だけダミーを入れる
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_dummy
+          CLERK_SECRET_KEY: sk_test_dummy
+          TURSO_DATABASE_URL: libsql://dummy.turso.io
+          TURSO_AUTH_TOKEN: dummy
+          ANTHROPIC_API_KEY: dummy
+        run: pnpm build

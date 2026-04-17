@@ -1,0 +1,64 @@
+# --- Node / pnpm ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# --- Next.js ---
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# --- 環境変数 (絶対コミットしない) ---
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# --- Turso / Drizzle ---
+*.db
+*.db-journal
+drizzle/meta/
+.drizzle/
+
+# --- ビルド成果物 ---
+dist/
+build/
+coverage/
+.vercel/
+.turbo/
+
+# --- ログ ---
+logs/
+*.log
+
+# --- テスト ---
+.vitest-cache/
+
+# --- IDE / エディタ ---
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Claude Code / AI ツール一時ファイル ---
+.claude/
+.codex/
+.aider*
+.cursor-tutor/
+*.local.md
+
+# --- 秘密情報の念押し ---
+*.pem
+*.key
+secrets/
