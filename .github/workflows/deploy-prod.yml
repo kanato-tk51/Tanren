@@ -1,0 +1,57 @@
+name: deploy-prod
+
+# main の最新を production ブランチに fast-forward push する。
+# Vercel の Production Branch を 'production' に設定しておくこと。
+# 手動実行のみ (Actions → deploy-prod → Run workflow)。
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "本番にデプロイします。'deploy' と入力してください"
+        required: true
+        default: ""
+
+jobs:
+  promote:
+    name: Promote main → production
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - name: Verify confirmation input
+        if: ${{ inputs.confirm != 'deploy' }}
+        run: |
+          echo "::error::確認文字列 'deploy' が一致しません。中断。"
+          exit 1
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Show commit to be promoted
+        run: |
+          echo "### 本番に昇格する main の最新コミット" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          git log -1 --pretty=full >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fast-forward push main → production
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # 明示的に fast-forward を要求 (force push は Ruleset で拒否される)
+          git push origin main:production
+
+      - name: Notify success
+        run: |
+          echo "::notice::production を更新しました。Vercel で本番デプロイが走り始めます。"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "👉 Vercel ダッシュボードでビルド進捗を確認: " >> "$GITHUB_STEP_SUMMARY"
+          echo "https://vercel.com/${{ github.repository_owner }}/tanren/deployments" >> "$GITHUB_STEP_SUMMARY"
