@@ -19,8 +19,8 @@
 ### 8.2.1. 必須機能
 
 - ユーザー登録・ログイン (Clerk) — 自分のアカウントだけ使う想定
-- 知識ツリー seed: **Tier 1 の 5 ドメイン × 20 concept = 100 concept**
-  - programming, dsa, network, db, tools を優先 (日常の開発で毎日触る領域)
+- 知識ツリー seed: **Tier 1 の 6 ドメイン × 17 concept ≒ 100 concept**
+  - programming, dsa, network, db, tools, frontend を優先 (日常の Web 開発で毎日触る領域)
 - 問題タイプ: **mcq + short + written** の 3 つのみ
 - 思考スタイル: **memorization / why / comparison / trade_off / applied_scenario** の 5 つ
 - 問題生成 (Claude Sonnet 4.6)
