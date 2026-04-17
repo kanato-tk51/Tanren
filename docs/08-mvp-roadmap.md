@@ -18,14 +18,14 @@
 
 ### 8.2.1. 必須機能
 
-- ユーザー登録・ログイン (Clerk) — 自分のアカウントだけ使う想定
+- Passkey (WebAuthn) 認証 — 自分のアカウントだけ使う想定 (ADR-0004)
 - 知識ツリー seed: **Tier 1 の 6 ドメイン × 17 concept ≒ 100 concept**
   - programming, dsa, network, db, tools, frontend を優先 (日常の Web 開発で毎日触る領域)
 - 問題タイプ: **mcq + short + written** の 3 つのみ
 - 思考スタイル: **memorization / why / comparison / trade_off / applied_scenario** の 5 つ
-- 問題生成 (Claude Sonnet 4.6)
-- 採点 (Haiku / Sonnet 混在)
-- 誤概念タグ付けの基本実装 (抽出は Sonnet)
+- 問題生成 (OpenAI `gpt-5`)
+- 採点 (`gpt-5` / `gpt-5-mini` 混在)
+- 誤概念タグ付けの基本実装 (抽出は `gpt-5`)
 - **採点への反論ボタン** (再採点) — R1 対策として初日から必要
 - **「詳しく聞く用にコピー」ボタン** — 問題 + 回答 + 採点を LLM 用プロンプトに整形してクリップボードにコピー (`07.13`)
 - FSRS スケジューラ (`ts-fsrs`)
@@ -53,7 +53,7 @@
 - Trends グラフ
 - Weekly Digest
 - Web Push 通知
-- FTS5 全文検索
+- tsvector + pg_trgm の本格チューニング (MVP は最小構成)
 - オフライン対応
 - 事前生成バッチ
 - 設定画面の大半
@@ -68,7 +68,7 @@
 
 **目標:** Hello World レベルのスケルトンを動かす
 
-- Next.js 15 + Turso + Drizzle + Clerk セットアップ
+- Next.js 15 + Neon + Drizzle + Passkey セットアップ
 - shadcn/ui 導入
 - ホーム画面表示 (ログイン済みユーザー情報)
 - tRPC 疎通確認
@@ -78,8 +78,8 @@
 **目標:** 最小の「問題 → 解答 → 採点」が動く
 
 - 知識ツリー YAML (10 concept) + seed スクリプト
-- `questions` テーブル + 生成 API (Sonnet)
-- `attempts` テーブル + 採点 API (Haiku/Sonnet)
+- `questions` テーブル + 生成 API (`gpt-5`)
+- `attempts` テーブル + 採点 API (`gpt-5` / `gpt-5-mini`)
 - 最小の `/drill` 画面 (mcq のみ)
 - 解答 → 採点 → 次の問題への連鎖
 
@@ -90,7 +90,7 @@
 - `mastery` テーブル + FSRS 統合 (`ts-fsrs`)
 - `next_review` に基づく Daily Drill 候補選定
 - 問題タイプに short / written を追加
-- Custom Session の NL パース (Haiku)
+- Custom Session の NL パース (`gpt-5-mini`)
 - Custom Session の実行
 
 ### Phase 3: Insights と誤概念
@@ -110,7 +110,7 @@
 - PWA 化 (manifest + Service Worker)
 - モバイル UX の最終調整
 - 初回オンボーディング + 診断テスト
-- 本番デプロイ (Vercel + Turso)
+- 本番デプロイ (Vercel + Neon)
 
 ### Phase 5: 深掘り機能
 
@@ -118,7 +118,7 @@
 
 - Deep Dive モード
 - Mastery Map ビジュアル (サンバースト)
-- FTS5 全文検索
+- 全文検索の本格チューニング (pgroonga / Meilisearch 等の検討)
 - 問題タイプ拡張 (cloze, code_read)
 - Custom Session の Template 保存
 - Trends グラフ
@@ -155,17 +155,19 @@
 - TypeScript / Tailwind / shadcn/ui 導入
 - Vercel にデプロイ (空のページで OK)
 
-### Day 2: 認証
+### Day 2: 認証 (Passkey)
 
-- Clerk 統合
-- ログイン / ログアウトが動く
-- ユーザー情報取得確認
+- `@simplewebauthn/server` + `@simplewebauthn/browser` 導入
+- `pnpm run auth:bootstrap` で初期 user 作成
+- Passkey 登録 → ログイン → セッション cookie 発行までが動く
+- tRPC `protectedProcedure` でログイン必須ルートの保護
 
 ### Day 3: DB
 
-- Turso アカウント作成、DB 作成
-- Drizzle 導入 + 初期スキーマ (users, concepts, questions, attempts, mastery, sessions)
-- マイグレーション実行
+- Neon アカウント作成、プロジェクト作成 (dev branch + prod branch)
+- `@neondatabase/serverless` + Drizzle 導入
+- 初期スキーマ (users, credentials, sessions_auth, concepts, questions, attempts, mastery, sessions)
+- `pnpm db:generate` → `pnpm db:migrate` 実行
 
 ### Day 4: 知識ツリー Seed
 
@@ -175,8 +177,9 @@
 
 ### Day 5: 問題生成
 
-- Anthropic SDK 導入
-- 最小の生成関数 (concept を受け取り JSON 返す)
+- `openai` SDK 導入
+- `src/lib/openai/client.ts` + `models.ts` を配置
+- 最小の生成関数 (concept を受け取り Structured Outputs で JSON 返す)
 - `questions.generate` tRPC で確認
 - 生成結果を DB にキャッシュ
 
@@ -283,7 +286,7 @@
 明確に切り捨てる:
 
 - ❌ モバイルネイティブアプリ (Web PWA で十分)
-- ❌ 他 LLM プロバイダ対応 (Claude 一本)
+- ❌ 他 LLM プロバイダ対応 (OpenAI 一本、ADR-0005)
 - ❌ 英語対応 (日本語のみ)
 - ❌ ソーシャル機能 (ランキング、友達機能など)
 - ❌ ゲーミフィケーション (バッジ、ポイントなど派手なもの)

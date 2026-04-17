@@ -25,20 +25,22 @@
 - **Next.js 15 (App Router) + TypeScript strict**
 - **Node.js 22 LTS** (Bun は採用しない)
 - **pnpm** (npm / yarn / bun は採用しない)
-- **Turso (libSQL) + Drizzle**
+- **Neon (PostgreSQL 16+) + Drizzle (pg dialect)** — ADR-0003
 - **tRPC**
-- **Clerk** (認証)
-- **Anthropic Claude API** — MVP は Sonnet 4.6 + Haiku 4.5 のみ。**Opus は Phase 2+**
+- **Passkey (WebAuthn) 認証** — `@simplewebauthn/server` + `/browser` — ADR-0004
+- **OpenAI API** — MVP は `gpt-5` + `gpt-5-mini`。高 reasoning は Phase 2+ — ADR-0005
 - **shadcn/ui + Tailwind**
 - **Vitest**
-- **Vercel** (Hobby)
+- **Vercel** (Hobby) + Neon の Vercel 統合
 
 ## 3. 禁止事項 (やらないで)
 
 | やらない | 理由 |
 |---|---|
 | Bun / Deno に差し替え | Vercel 相性、決定済み (`06.5.1`) |
-| 他 LLM プロバイダ (OpenAI 等) 対応 | Claude 一本で行く (`08.9`) |
+| 他 LLM プロバイダ (Anthropic / Google 等) 追加 | OpenAI 一本で行く (ADR-0005) |
+| Turso / SQLite / 他 DB に戻す | Neon に確定 (ADR-0003) |
+| Clerk / Auth.js / OAuth を追加 | Passkey 一本 (ADR-0004) |
 | Upstash Redis / PostHog / Logtail 追加 | MVP では使わない (`06.5.2`) |
 | Web Push 実装 | Phase 5+、メールが先 |
 | Streak / バッジ / ポイント | ゲーミフィケーション禁止 (`08.9`) |
@@ -48,6 +50,7 @@
 | main に直 push | PR 経由のみ |
 | docs を変えずに設計変更 | ドキュメントが真実の源 |
 | `difficulty` に `intro/applied/edge_case` を使う | ADR-0001 で廃止済み。6 段階 only |
+| `NEXT_PUBLIC_*` で LLM / DB キーを公開 | サーバー専用変数 |
 
 ## 4. コーディング規約
 
@@ -86,6 +89,25 @@
 - プロンプトは `prompts/{generation|grading|parsing}/<name>.v<n>.md` で版管理
 - テンプレ関数で変数を注入、テンプレ文字列直書きしない
 - 呼び出し時 `attempts.prompt_version` または `questions.prompt_version` に記録
+- OpenAI の **自動 prompt caching** のため、**共通 prefix は必ず先頭**に配置 (順序崩さない)
+
+### 4.6. LLM 呼び出しは 1 箇所に集約
+
+- すべての OpenAI 呼び出しは `src/lib/openai/client.ts` のラッパ経由のみ
+- モデル名は `src/lib/openai/models.ts` の定数から (文字列リテラル散らばり禁止)
+- 将来 provider を差し替える可能性を考慮、ドメインロジックから直接 `openai.*` を呼ばない
+
+### 4.7. DB アクセス
+
+- すべての DB クエリは Drizzle 経由
+- `src/db/schema/` のテーブル定義が真実の源、手書き SQL は最小限に
+- 認証が必要なクエリは必ず `user_id` を where 句に含める (共通 helper `withUser(userId)` を使う)
+
+### 4.8. 認証
+
+- 認証ロジックは `src/server/auth/` に集約 (`@simplewebauthn/*` のラッパ)
+- tRPC の `protectedProcedure` を通ったハンドラでは `ctx.user` が常に存在する前提で書ける
+- cookie 名 `__Host-tanren_session` を変えない (CSRF 耐性のため prefix 必須)
 
 ## 5. docs/ と実装の同期
 
@@ -121,7 +143,8 @@ MVP で書く:
 - 実装前に `docs/` の該当箇所を確認し、矛盾があれば指摘する
 - テストも一緒に書く
 - 型を厳密に (`any` を返す関数を作らない)
-- Claude API 呼び出しは `src/lib/anthropic.ts` 経由に統一する
+- OpenAI API 呼び出しは `src/lib/openai/client.ts` 経由に統一する
+- 認証関連は `src/server/auth/` 経由、Passkey ライブラリを直接触らない
 
 ### やらないでほしい
 

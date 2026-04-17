@@ -10,18 +10,20 @@
 
 - **Node.js 22 LTS** — `nvm install` で `.nvmrc` 準拠
 - **pnpm 10.x** — `corepack enable` 経由推奨
-- **Turso CLI** — `brew install tursodatabase/tap/turso`
+- **psql** (任意) — Neon への直接アクセス用。`brew install libpq` で取得可
 - **Git**
 
 ### 1.2. 認証準備
 
 以下のサービスでアカウントを作る (無料枠):
 
-- [Clerk](https://clerk.com/) — Application 1 個、開発用キーを取得
-- [Turso](https://turso.tech/) — DB 1 個
-- [Anthropic](https://console.anthropic.com/) — API キー、月間予算アラートを $20 で設定
+- [Neon](https://neon.tech/) — Project 1 個。`dev` と `prod` の branch を切る
+- [OpenAI](https://platform.openai.com/) — API キー取得、**Settings → Limits で Usage limit を $20/月**に設定
 - [Sentry](https://sentry.io/) — Next.js プロジェクト 1 個
-- [Vercel](https://vercel.com/) — Hobby、Git 連携
+- [Vercel](https://vercel.com/) — Hobby、Git 連携 + Neon integration を有効化
+
+> Passkey 認証のためのパスワード管理サービスは**不要**。
+> 作者端末の iCloud Keychain / Google Password Manager で Passkey を同期する前提。
 
 ### 1.3. 環境変数
 
@@ -50,7 +52,9 @@ pnpm create next-app@latest . \
   --import-alias "@/*"
 
 # 初期依存を追加 (MVP 必須)
-pnpm add @anthropic-ai/sdk @clerk/nextjs @libsql/client drizzle-orm drizzle-zod \
+pnpm add openai \
+         @simplewebauthn/server @simplewebauthn/browser \
+         @neondatabase/serverless drizzle-orm drizzle-zod \
          @trpc/server @trpc/client @trpc/react-query @trpc/next \
          @tanstack/react-query zod ts-fsrs nuqs zustand \
          @sentry/nextjs
@@ -58,7 +62,7 @@ pnpm add @anthropic-ai/sdk @clerk/nextjs @libsql/client drizzle-orm drizzle-zod 
 pnpm add -D drizzle-kit vitest @vitest/coverage-v8 @vitejs/plugin-react \
             @testing-library/react @testing-library/user-event \
             prettier prettier-plugin-tailwindcss eslint-config-prettier \
-            lefthook
+            lefthook tsx
 ```
 
 その後 `package.json` の `scripts` に以下を足す:
@@ -77,6 +81,7 @@ pnpm add -D drizzle-kit vitest @vitest/coverage-v8 @vitejs/plugin-react \
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx src/db/seed/run.ts",
     "db:studio": "drizzle-kit studio",
+    "auth:bootstrap": "tsx src/server/auth/bootstrap.ts",
     "prepare": "lefthook install"
   },
   "packageManager": "pnpm@10.0.0",
@@ -158,5 +163,6 @@ PR テンプレートのチェックを埋めて、CI が緑なら self-approve 
 |---|---|
 | `pnpm install` が遅い | `.pnpm-store` の場所を SSD に (`pnpm config set store-dir`) |
 | CI がずっと skip | Phase 0 前は `package.json` が無いため意図通り。Day 1 で解消 |
-| Clerk の dev key が expire | Clerk ダッシュボードで再発行 |
-| Turso 無料枠に迫る | `turso db show` で使用量確認、古い brunch を削除 |
+| Passkey がブラウザで動かない | `WEBAUTHN_RP_ID` と `WEBAUTHN_ORIGIN` が一致しているか確認 |
+| Neon で `SSL required` | 接続文字列の末尾に `?sslmode=require` を付ける |
+| OpenAI `rate_limit` | Usage limit に到達していないか確認、モデル/Tier を見直す |

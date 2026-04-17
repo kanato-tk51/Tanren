@@ -107,7 +107,7 @@ type DifficultySpec =
 
 ### 4.4.1. 使用モデル
 
-**Claude Haiku 4.5** — 構造化出力が速く、安い。
+**OpenAI `gpt-5-mini`** — Structured Outputs が速く安い (ADR-0005)。
 
 ### 4.4.2. パーサプロンプト
 
@@ -293,7 +293,7 @@ Custom で「存在しない concept (例: `network.tcp.bbrv2`)」が出たら:
 ### 4.10.1. MVP に含める
 
 - 自然言語入力 1 個
-- Haiku によるパース
+- `gpt-5-mini` によるパース
 - **パース結果を読み取り専用カードで表示** (違和感あれば自然言語で再入力)。編集可能フォームは MVP では作らない
 - 既存生成プロンプトへの `thinking_style` 注入
 - 絶対難易度のみサポート (`beginner / junior / mid / senior`)

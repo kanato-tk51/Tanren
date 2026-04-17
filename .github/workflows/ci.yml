@@ -60,9 +60,12 @@ jobs:
       - name: Build
         if: steps.has_pkg.outputs.present == 'true'
         env:
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_dummy
-          CLERK_SECRET_KEY: sk_test_dummy
-          TURSO_DATABASE_URL: libsql://dummy.turso.io
-          TURSO_AUTH_TOKEN: dummy
-          ANTHROPIC_API_KEY: dummy
+          # CI ビルド通過用のダミー
+          DATABASE_URL: postgresql://dummy:dummy@localhost/dummy?sslmode=disable
+          OPENAI_API_KEY: sk-dummy
+          WEBAUTHN_RP_ID: localhost
+          WEBAUTHN_RP_NAME: Tanren
+          WEBAUTHN_ORIGIN: http://localhost:3000
+          SESSION_COOKIE_SECRET: 00000000000000000000000000000000
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
         run: pnpm build

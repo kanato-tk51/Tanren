@@ -161,11 +161,11 @@ Daily Drill のデフォルト昇格は `mid` 止まり。
 | タイプ | 採点方法 | 採点 LLM |
 |---|---|---|
 | `mcq` / `cloze` | 完全一致 | 不要 |
-| `short` | ルーブリック項目の充足判定 | Haiku |
-| `written` | ルーブリック + 0-5 スコア + 改善点生成 | Sonnet |
-| `code_read` | 実行結果比較 (Phase 6 で Judge0 導入予定) | 不要 or Haiku |
-| `code_debug` | 修正内容の妥当性判定 | Sonnet |
-| `design` | 対話採点 (最大3ターン) | Sonnet |
+| `short` | ルーブリック項目の充足判定 | `gpt-5-mini` |
+| `written` | ルーブリック + 0-1 スコア + 改善点生成 | `gpt-5` |
+| `code_read` | 実行結果比較 (Phase 6 で Judge0 導入予定) | 不要 or `gpt-5-mini` |
+| `code_debug` | 修正内容の妥当性判定 | `gpt-5` |
+| `design` | 対話採点 (最大3ターン、Phase 2+) | `gpt-5` |
 
 ---
 

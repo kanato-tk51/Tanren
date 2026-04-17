@@ -150,9 +150,10 @@
 
 ### 実装
 
-- **SQLite FTS5** (Turso 対応) + `unicode61` tokenizer + bigram 分割
+- **PostgreSQL `tsvector` + GIN index** + `pg_trgm` を併用 (日本語対応)
+- `attempts.search_tsv` は `STORED` generated column として自動更新
 - インデックス対象:
-  - `questions.prompt`
+  - `questions.prompt` (attempts JOIN 経由)
   - `attempts.user_answer`
   - `questions.explanation`
   - `misconceptions.description`
@@ -171,9 +172,9 @@ q: "race condition"
 
 ### 日本語対応
 
-- 標準の FTS5 トークナイザは日本語が弱い
-- **bigram (2文字分割)** で実用水準に引き上げ
-- 必要に応じて Meilisearch / Typesense を別立て (Phase 2)
+- PostgreSQL 標準 parser は日本語で弱い
+- **`pg_trgm` GIN index** (trigram 部分一致) を主軸に据えるのが実用的
+- より本格的には `pgroonga` / `textsearch_ja` 拡張、または Meilisearch/Typesense を別立て (Phase 2+)
 
 ---
 
@@ -234,7 +235,7 @@ Misconceptions tracked: [リスト]
 
 ### 仕組み
 
-1. 採点時に「正しい答え」と「ユーザーの答え」の差を Sonnet が分析
+1. 採点時に「正しい答え」と「ユーザーの答え」の差を `gpt-5` が分析
 2. 誤概念の要旨を `misconceptions` テーブルに保存
 3. 同じ誤概念が再発したら `count` を加算
 4. 矯正できたら `resolved = 1` にマーク
@@ -334,7 +335,7 @@ Web Push は Phase 5+、`07.5.5` の検証後。Streak at risk は Streak 自体
 [TLS Deep Dive を開始]
 ```
 
-生成は Sonnet で。
+生成は `gpt-5` で。
 
 ---
 
@@ -367,7 +368,7 @@ Web Push は Phase 5+、`07.5.5` の検証後。Streak at risk は Streak 自体
 - Misconception Tracker (誤概念タグ付けインフラが Phase 2)
 - Trends グラフ
 - Weekly Digest 生成 + 配信
-- FTS5 全文検索
+- tsvector + pg_trgm の本格チューニング (現在は最小構成)
 - 全ての「行動につなぐボタン」の実装
 
 ---
@@ -376,5 +377,5 @@ Web Push は Phase 5+、`07.5.5` の検証後。Streak at risk は Streak 自体
 
 - 1 ユーザーが 1 年間 1 日 20 問 = **~7,300 attempts**
 - 1 attempt ≈ 2 KB → **~15 MB/ユーザー/年**
-- Turso で余裕で処理可能
-- FTS5 検索も数 ms 以内
+- Neon 無料枠 (0.5GB) で余裕で処理可能
+- tsvector + GIN 検索も数 ms 以内

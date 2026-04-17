@@ -12,19 +12,20 @@
 │  /, /drill, /deep, /custom, /insights/*      │
 │  + Service Worker (App Shell cache のみ)     │
 └────────────────┬─────────────────────────────┘
-                 │ tRPC
+                 │ tRPC (cookie session)
 ┌────────────────▼─────────────────────────────┐
 │ Next.js API Layer (App Router Route Handlers)│
+│  ├─ auth        (Passkey 登録/認証、セッション) │
 │  ├─ scheduler   (FSRS → 次の concept/問題)   │
-│  ├─ generator   (Claude API 呼び出し)         │
-│  ├─ grader      (Claude API 呼び出し)         │
+│  ├─ generator   (OpenAI API 呼び出し)         │
+│  ├─ grader      (OpenAI API 呼び出し)         │
 │  ├─ parser      (NL → CustomSessionSpec)      │
 │  └─ insights    (集計クエリ)                  │
 └────────┬─────────┬───────────────────────────┘
          │         │
     ┌────▼─┐  ┌────▼────────┐
-    │Turso │  │Anthropic API│
-    │libSQL│  │   (Claude)  │
+    │ Neon │  │  OpenAI API │
+    │ (pg) │  │  (GPT-5)    │
     └──────┘  └─────────────┘
 
 Phase 3+ で追加:
@@ -36,24 +37,27 @@ Phase 5+ で追加:
 
 ---
 
-## 6.2. データモデル (Drizzle + Turso)
+## 6.2. データモデル (Drizzle + Neon PostgreSQL)
 
 ### 6.2.1. テーブル一覧と役割
 
 | テーブル | 役割 |
 |---|---|
 | `users` | ユーザー情報、設定 |
+| `credentials` | Passkey クレデンシャル (ADR-0004) |
+| `sessions_auth` | 認証セッション (cookie) |
+| `webauthn_challenges` | Passkey 登録/認証時の一時チャレンジ |
 | `concepts` | 知識ツリーのマスタ |
 | `questions` | 生成済み問題のキャッシュ |
-| `sessions` | セッション (Daily/Deep/Custom/Review) |
+| `sessions` | 学習セッション (Daily/Deep/Custom/Review) |
 | `attempts` | 1 問ごとの解答履歴 |
 | `mastery` | FSRS 状態 (user × concept) |
 | `misconceptions` | 誤概念トラッカー |
 | `session_templates` | Custom Session のテンプレ |
 | `daily_stats` | 日次集計キャッシュ |
-| `attempts_fts` | 全文検索仮想テーブル |
+| `attempts_search` | 全文検索用 tsvector カラム付き view |
 
-### 6.2.2. スキーマ定義
+### 6.2.2. スキーマ定義 (PostgreSQL 16+)
 
 ```sql
 -- 知識ツリー
@@ -61,187 +65,204 @@ Phase 5+ で追加:
 -- domains テーブルは作らない (マスタが YAML なので二重管理を避ける)。
 CREATE TABLE concepts (
   id TEXT PRIMARY KEY,              -- 'network.tcp.congestion'
-  domain_id TEXT NOT NULL,          -- enum: 13 ドメインのいずれか
-  subdomain_id TEXT,                -- 文字列、free-form (YAML 側で定義)
+  domain_id TEXT NOT NULL,
+  subdomain_id TEXT,
   name TEXT NOT NULL,
   description TEXT,
-  prereqs TEXT,                     -- JSON array
-  tags TEXT,                        -- JSON array
-  difficulty_levels TEXT,           -- JSON array (6段階のサブセット)
-  created_at INTEGER,
-  updated_at INTEGER
+  prereqs JSONB DEFAULT '[]'::jsonb,
+  tags JSONB DEFAULT '[]'::jsonb,
+  difficulty_levels JSONB DEFAULT '[]'::jsonb,  -- 6段階のサブセット
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_concepts_domain ON concepts(domain_id);
+CREATE INDEX idx_concepts_tags ON concepts USING GIN (tags);
 
 -- ユーザー (個人用途のため事実上 1 行のみ)
 CREATE TABLE users (
-  id TEXT PRIMARY KEY,              -- Clerk user_id
-  email TEXT UNIQUE,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  email TEXT UNIQUE NOT NULL,
   display_name TEXT,
   timezone TEXT DEFAULT 'Asia/Tokyo',
-  daily_goal INTEGER DEFAULT 15,    -- 1日の目標問題数
-  notification_time TEXT,           -- HH:mm 形式
-  created_at INTEGER
+  daily_goal INTEGER NOT NULL DEFAULT 15,
+  notification_time TEXT,                       -- 'HH:mm'
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Passkey クレデンシャル (ADR-0004)
+CREATE TABLE credentials (
+  id TEXT PRIMARY KEY,                          -- credentialId (base64url)
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  public_key BYTEA NOT NULL,
+  counter BIGINT NOT NULL DEFAULT 0,
+  device_type TEXT,                             -- 'singleDevice' | 'multiDevice'
+  backed_up BOOLEAN NOT NULL DEFAULT FALSE,
+  transports JSONB DEFAULT '[]'::jsonb,
+  nickname TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ
+);
+CREATE INDEX idx_credentials_user ON credentials(user_id);
+
+-- 認証セッション (cookie)
+CREATE TABLE sessions_auth (
+  id TEXT PRIMARY KEY,                          -- crypto.randomUUID()
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  last_active_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_sessions_auth_user ON sessions_auth(user_id);
+CREATE INDEX idx_sessions_auth_expires ON sessions_auth(expires_at);
+
+-- WebAuthn チャレンジ一時保管
+CREATE TABLE webauthn_challenges (
+  id TEXT PRIMARY KEY,
+  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  challenge TEXT NOT NULL,
+  purpose TEXT NOT NULL,                        -- 'register' | 'authenticate'
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL
 );
 
 -- 生成済み問題キャッシュ
 CREATE TABLE questions (
-  id TEXT PRIMARY KEY,
-  concept_id TEXT NOT NULL,
-  type TEXT NOT NULL,               -- 'mcq' | 'short' | 'written' | ...
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  concept_id TEXT NOT NULL REFERENCES concepts(id),
+  type TEXT NOT NULL,
   thinking_style TEXT,
-  difficulty TEXT NOT NULL,         -- 'beginner'|'junior'|'mid'|'senior'|'staff'|'principal'
+  difficulty TEXT NOT NULL,                     -- 'beginner'|…|'principal'
   prompt TEXT NOT NULL,
   answer TEXT NOT NULL,
-  rubric TEXT,                      -- JSON
-  distractors TEXT,                 -- JSON (mcq only)
+  rubric JSONB,
+  distractors JSONB,                            -- mcq only
   hint TEXT,
   explanation TEXT,
-  tags TEXT,
-  generated_by TEXT,                -- 'claude-sonnet-4-6'
-  prompt_version TEXT,              -- 'v1.2.0'
-  retired INTEGER DEFAULT 0,        -- 1 なら再出題しない (事実誤認など)
+  tags JSONB DEFAULT '[]'::jsonb,
+  generated_by TEXT,                            -- 'gpt-5'
+  prompt_version TEXT,
+  retired BOOLEAN NOT NULL DEFAULT FALSE,
   retired_reason TEXT,
-  created_at INTEGER,
-  last_served_at INTEGER,
-  serve_count INTEGER DEFAULT 0,
-  FOREIGN KEY (concept_id) REFERENCES concepts(id)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_served_at TIMESTAMPTZ,
+  serve_count INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX idx_questions_concept_type_style
-  ON questions(concept_id, type, thinking_style, difficulty);
+  ON questions(concept_id, type, thinking_style, difficulty)
+  WHERE retired = FALSE;
 
--- セッション
+-- 学習セッション
 CREATE TABLE sessions (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  kind TEXT NOT NULL,               -- 'daily' | 'deep' | 'custom' | 'review'
-  spec TEXT,                        -- CustomSessionSpec JSON (custom のみ)
-  template_id TEXT,
-  started_at INTEGER,
-  finished_at INTEGER,
-  question_count INTEGER,
-  correct_count INTEGER,
-  FOREIGN KEY (user_id) REFERENCES users(id),
-  FOREIGN KEY (template_id) REFERENCES session_templates(id)
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,                           -- 'daily' | 'deep' | 'custom' | 'review'
+  spec JSONB,                                   -- CustomSessionSpec (custom のみ)
+  template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at TIMESTAMPTZ,
+  question_count INTEGER NOT NULL DEFAULT 0,
+  correct_count INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX idx_sessions_user_started ON sessions(user_id, started_at DESC);
 
 -- 解答履歴
 CREATE TABLE attempts (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  session_id TEXT NOT NULL,
-  question_id TEXT NOT NULL,
-  concept_id TEXT NOT NULL,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  question_id TEXT NOT NULL REFERENCES questions(id),
+  concept_id TEXT NOT NULL REFERENCES concepts(id),
   user_answer TEXT,
-  correct INTEGER,                  -- 0/1
-  score REAL,                       -- 0.0-1.0
-  self_rating INTEGER,              -- 1-5
+  correct BOOLEAN,
+  score REAL,                                   -- 0.0-1.0
+  self_rating SMALLINT,                         -- 1-5
   elapsed_ms INTEGER,
-  feedback TEXT,                    -- LLM 生成の改善フィードバック
-  rubric_checks TEXT,               -- JSON
-  misconception_tags TEXT,          -- JSON
-  reason_given TEXT,                -- 誤答時の「なぜ」
-  copied_for_external INTEGER DEFAULT 0,  -- 「詳しく聞く用にコピー」の押下回数
-  created_at INTEGER,
-  FOREIGN KEY (user_id) REFERENCES users(id),
-  FOREIGN KEY (session_id) REFERENCES sessions(id),
-  FOREIGN KEY (question_id) REFERENCES questions(id),
-  FOREIGN KEY (concept_id) REFERENCES concepts(id)
+  feedback TEXT,
+  rubric_checks JSONB,
+  misconception_tags JSONB,
+  reason_given TEXT,
+  copied_for_external INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- 全文検索用 tsvector (日本語は pg_trgm 併用)
+  search_tsv tsvector GENERATED ALWAYS AS (
+    to_tsvector('simple',
+      coalesce(user_answer, '') || ' ' || coalesce(reason_given, '') || ' ' || coalesce(feedback, '')
+    )
+  ) STORED
 );
 
 CREATE INDEX idx_attempts_user_concept ON attempts(user_id, concept_id);
 CREATE INDEX idx_attempts_user_created ON attempts(user_id, created_at DESC);
+CREATE INDEX idx_attempts_search ON attempts USING GIN (search_tsv);
+CREATE INDEX idx_attempts_trgm ON attempts USING GIN (user_answer gin_trgm_ops);
 
 -- FSRS 状態 (concept 単位)
 CREATE TABLE mastery (
-  user_id TEXT NOT NULL,
-  concept_id TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  concept_id TEXT NOT NULL REFERENCES concepts(id),
   stability REAL,
   difficulty REAL,
-  last_review INTEGER,
-  next_review INTEGER,
-  review_count INTEGER DEFAULT 0,
-  lapse_count INTEGER DEFAULT 0,
-  mastered INTEGER DEFAULT 0,       -- 0/1
-  mastery_pct REAL DEFAULT 0,       -- 0.0-1.0
-  PRIMARY KEY (user_id, concept_id),
-  FOREIGN KEY (user_id) REFERENCES users(id),
-  FOREIGN KEY (concept_id) REFERENCES concepts(id)
+  last_review TIMESTAMPTZ,
+  next_review TIMESTAMPTZ,
+  review_count INTEGER NOT NULL DEFAULT 0,
+  lapse_count INTEGER NOT NULL DEFAULT 0,
+  mastered BOOLEAN NOT NULL DEFAULT FALSE,
+  mastery_pct REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, concept_id)
 );
 
 CREATE INDEX idx_mastery_next_review ON mastery(user_id, next_review);
 
 -- 誤概念トラッカー
 CREATE TABLE misconceptions (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  concept_id TEXT NOT NULL,
-  description TEXT,                 -- LLM 生成の誤概念説明
-  first_seen INTEGER,
-  last_seen INTEGER,
-  count INTEGER DEFAULT 1,
-  resolved INTEGER DEFAULT 0,
-  FOREIGN KEY (user_id) REFERENCES users(id),
-  FOREIGN KEY (concept_id) REFERENCES concepts(id)
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  concept_id TEXT NOT NULL REFERENCES concepts(id),
+  description TEXT NOT NULL,
+  first_seen TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen TIMESTAMPTZ NOT NULL DEFAULT now(),
+  count INTEGER NOT NULL DEFAULT 1,
+  resolved BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- Custom Session テンプレ
 CREATE TABLE session_templates (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  name TEXT,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
   raw_request TEXT,
-  spec TEXT NOT NULL,
-  use_count INTEGER DEFAULT 0,
-  last_used_at INTEGER,
-  created_at INTEGER,
-  FOREIGN KEY (user_id) REFERENCES users(id)
+  spec JSONB NOT NULL,
+  use_count INTEGER NOT NULL DEFAULT 0,
+  last_used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- 日次集計キャッシュ
 CREATE TABLE daily_stats (
-  user_id TEXT NOT NULL,
-  date TEXT NOT NULL,               -- '2026-04-17'
-  attempts_count INTEGER,
-  correct_count INTEGER,
-  concepts_touched INTEGER,
-  study_time_sec INTEGER,
-  domains_touched TEXT,             -- JSON array
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  attempts_count INTEGER NOT NULL DEFAULT 0,
+  correct_count INTEGER NOT NULL DEFAULT 0,
+  concepts_touched INTEGER NOT NULL DEFAULT 0,
+  study_time_sec INTEGER NOT NULL DEFAULT 0,
+  domains_touched JSONB DEFAULT '[]'::jsonb,
   PRIMARY KEY (user_id, date)
 );
 
--- 全文検索 (FTS5 仮想テーブル)
-CREATE VIRTUAL TABLE attempts_fts USING fts5(
-  prompt,
-  user_answer,
-  explanation,
-  misconception_tags,
-  content='attempts_view',
-  content_rowid='rowid',
-  tokenize='unicode61 remove_diacritics 2'
-);
-
--- attempts_view: attempts と questions を JOIN したビュー
-CREATE VIEW attempts_view AS
-  SELECT
-    a.rowid,
-    q.prompt,
-    a.user_answer,
-    q.explanation,
-    a.misconception_tags
-  FROM attempts a
-  JOIN questions q ON a.question_id = q.id;
+-- 拡張 (初回マイグレーションで一度だけ)
+-- CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 ```
 
 ### 6.2.3. インデックス設計の指針
 
 - 頻出クエリ: 「ユーザー × concept」「ユーザー × 時系列」
-- FSRS スケジューラは `next_review <= now` のスキャンが必須 → インデックス必須
-- FTS5 は日本語向けに `unicode61` + bigram が実用的
+- FSRS スケジューラは `next_review <= now()` のスキャンが必須 → B-tree index
+- 全文検索: `tsvector` に GIN + `pg_trgm` を併用 (日本語は語境界が曖昧なので trigram が効く)
+- JSONB カラム (`tags` / `spec`) は必要に応じて GIN index を追加
 
 ---
 
@@ -375,41 +396,44 @@ function priority(concept: Concept, mastery: Mastery): number {
 
 | レイヤ | 採用技術 | 理由 |
 |---|---|---|
-| Framework | **Next.js 15 (App Router)** | 慣れた技術、SSR/ISR 柔軟、Route Handlers で API 統合 |
-| Language | **TypeScript** | 型安全 |
-| Runtime | **Node.js 22 LTS** | Vercel デフォルト、安定運用。Bun は魅力だが Vercel Edge 以外で相性問題あり |
-| DB | **Turso (libSQL)** | エッジ分散、無料枠、FTS5 対応 |
-| ORM | **Drizzle** | 型安全、軽い、マイグレーション直感的 |
-| API | **tRPC** | 型安全 RPC、Next.js と相性良 |
-| Auth | **Clerk** | 1 ユーザーでも OAuth の手間を省ける。将来公開時も流用可 |
-| LLM | **Anthropic Claude API** | MVP は Haiku / Sonnet のみ。Opus は Phase 2+ |
+| Framework | **Next.js 15 (App Router)** | SSR/ISR 柔軟、Route Handlers で API 統合 |
+| Language | **TypeScript (strict)** | 型安全 |
+| Runtime | **Node.js 22 LTS** | Vercel デフォルト、安定運用 |
+| パッケージ管理 | **pnpm 10.x** | ADR-0002 |
+| DB | **Neon (PostgreSQL 16+)** | ADR-0003。Vercel 公式統合、tsvector/GIN による FTS |
+| DB ドライバ | **`@neondatabase/serverless`** | HTTP fetch 経由、Edge runtime 互換 |
+| ORM | **Drizzle (pg dialect)** | 型安全、マイグレーション直感的 |
+| API | **tRPC** | 型安全 RPC |
+| Auth | **Passkey (WebAuthn)** — `@simplewebauthn/server` + `/browser` | ADR-0004。パスワード / OAuth 併設しない |
+| LLM | **OpenAI API (`gpt-5` / `gpt-5-mini`)** | ADR-0005 |
 | UI | **shadcn/ui + Tailwind** | 短時間で整った UI |
-| Code Editor | **CodeMirror 6** | 軽量、モバイル可、言語拡張豊富 |
-| Charts (Phase 2+) | **Recharts** | React と相性、シンプル。MVP はテキスト表のみ |
-| State | **TanStack Query + Zustand** | サーバー状態 + UI 状態の分離 |
+| Code Editor | **CodeMirror 6** | 軽量、モバイル可 |
+| Charts (Phase 2+) | **Recharts** | MVP はテキスト表のみ |
+| State | **TanStack Query + Zustand** | サーバー状態 + UI 状態 |
 | URL 状態 | **nuqs** | フィルタなどの URL 同期 |
 | i18n | 日本語のみ | スコープ絞る |
-| PWA | **Serwist** (or next-pwa) | Service Worker 統合 |
-| Deploy | **Vercel Hobby** | Next.js と相性、Turso と統合 |
-| 監視 | **Sentry (Free tier)** | 個人用なのでエラー追跡のみ |
-| テスト | **Vitest** | unit/integration、軽量で速い |
-| メール | **Resend** (Phase 3+) | Weekly Digest / reminder 配信。無料枠で十分 |
+| PWA | **Serwist** | Service Worker 統合 |
+| Deploy | **Vercel Hobby** | Next.js と Neon の連携が公式 |
+| 監視 | **Sentry (Free tier)** | エラー追跡 |
+| テスト | **Vitest** | unit/integration |
+| メール (Phase 3+) | **Resend** | Weekly Digest / reminder |
 
 ### 6.5.2. 意図的に MVP で入れないもの
 
 | 技術 | 入れない理由 | 再検討タイミング |
 |---|---|---|
-| Upstash Redis | 1 ユーザーで rate limit 不要。保険用途ならプロセス内メモリで十分 | 公開時 or 並列ユーザー発生時 |
-| PostHog | 自分の行動分析は Insights 画面で代用できる | 公開時 |
-| Logtail (Better Stack) | Sentry + Vercel ログで十分 | ログ量が Sentry で収まらなくなったら |
-| Web Push | iOS PWA の制約が大きい。`7.5.5` 参照 | Phase 5+、実運用可否を検証後 |
-| Opus 4.7 | 5 倍コスト。Sonnet の品質で不足を感じてから | Phase 2+ |
-| Judge0 (コード実行) | MVP の問題タイプに不要 | Phase 6 |
+| Upstash Redis | 1 ユーザーで rate limit 不要 | 公開時 or 並列ユーザー発生時 |
+| PostHog | Insights 画面で代用 | 公開時 |
+| Logtail | Sentry + Vercel ログで十分 | ログ量増加時 |
+| Web Push | iOS PWA 制約 (`7.5.5`) | Phase 5+ |
+| `gpt-5` with high reasoning | コスト高、MVP は通常推論で足りる | Phase 2+ |
+| Judge0 (コード実行) | MVP 対象外 | Phase 6 |
+| OAuth (Google / GitHub) | Passkey 一本 (ADR-0004) | 公開時 |
 
 ### 6.5.3. メモ
 
-- **並列ユーザーが増えたら** Upstash + PostHog を足す前提で設計しておく (アーキ変更が要らない形で)
-- Clerk の無料枠は 10,000 MAU まで。1 人なら当然収まる
+- Neon 無料枠: 0.5GB / 3 プロジェクト / 常時接続 (Autosuspend あり)。個人用で十分
+- Passkey 実装は 200 行程度で完結、外部依存は `@simplewebauthn/*` のみ
 
 ---
 
@@ -417,30 +441,35 @@ function priority(concept: Concept, mastery: Mastery): number {
 
 ### 6.6.1. 環境
 
-- `development` — ローカル、Bun + Turso local
-- `preview` — Vercel Preview ブランチ、Turso preview branch
-- `production` — Vercel Prod、Turso prod
+- `development` — ローカル Next.js + Neon の dev branch
+- `preview` — Vercel Preview + Neon の preview branch
+- `production` — Vercel Prod + Neon prod branch
 
 ### 6.6.2. 主要な環境変数
 
 ```
 # MVP で必要
-CLERK_PUBLISHABLE_KEY=
-CLERK_SECRET_KEY=
-TURSO_DATABASE_URL=
-TURSO_AUTH_TOKEN=
-ANTHROPIC_API_KEY=
+DATABASE_URL=                # Neon: postgresql://user:pass@host/db?sslmode=require
+OPENAI_API_KEY=
+SESSION_COOKIE_SECRET=       # openssl rand -hex 32
+WEBAUTHN_RP_ID=              # 開発時 'localhost', 本番は 'tanren.example.com'
+WEBAUTHN_RP_NAME=Tanren
+WEBAUTHN_ORIGIN=              # 開発時 http://localhost:3000, 本番は https://tanren.example.com
+NEXT_PUBLIC_APP_URL=
 SENTRY_DSN=
+SENTRY_AUTH_TOKEN=
 
 # Phase 3+ で追加
-RESEND_API_KEY=              # メール配信
+RESEND_API_KEY=
+RESEND_FROM_EMAIL=
 
 # Phase 5+ で追加
 WEB_PUSH_VAPID_PUBLIC_KEY=
 WEB_PUSH_VAPID_PRIVATE_KEY=
-UPSTASH_REDIS_URL=           # 並列ユーザー発生時
+UPSTASH_REDIS_URL=
 UPSTASH_REDIS_TOKEN=
-POSTHOG_KEY=                 # 公開時
+NEXT_PUBLIC_POSTHOG_KEY=
+NEXT_PUBLIC_POSTHOG_HOST=
 ```
 
 ### 6.6.3. cron / バックグラウンドジョブ
@@ -515,28 +544,36 @@ Tanren/
 
 ## 6.8. セキュリティ
 
-### 6.8.1. 認証
+### 6.8.1. 認証 (Passkey, ADR-0004)
 
-- Clerk による OAuth (Google/GitHub)
-- セッション管理は Clerk がハンドリング
+- WebAuthn Passkey のみ。パスワード / OAuth は採用しない
+- ライブラリ: `@simplewebauthn/server` + `@simplewebauthn/browser`
+- 登録/認証フロー
+  1. `POST /api/auth/register/options` → チャレンジを `webauthn_challenges` に保存して返す
+  2. ブラウザで `navigator.credentials.create()` または `.get()` → 署名
+  3. `POST /api/auth/register/verify` or `.../authenticate/verify` でサーバー検証
+  4. OK なら `sessions_auth` に行を挿入、HTTP-only cookie (`__Host-tanren_session`) 発行
+- セッション有効期限: 30 日 sliding (`last_active_at` 更新で延長)
+- 初期ユーザー作成は `pnpm run auth:bootstrap` で CLI から 1 度だけ
 
 ### 6.8.2. 認可
 
-- すべての DB クエリは `user_id` フィルタ必須
-- Row Level Security は Turso では libSQL の view パターンで実現
-- tRPC の `protectedProcedure` で middleware 制御
+- tRPC `protectedProcedure` が cookie → `sessions_auth` lookup → `users.id` を context に注入
+- すべての DB クエリに `user_id` フィルタを**必ず**付ける (Drizzle で共通ラッパ)
+- 個人用途のため行レベルセキュリティ (RLS) は導入しない。将来公開する場合は Neon の RLS に移行
 
 ### 6.8.3. データ保護
 
-- API キー類はサーバー側のみ
-- PostHog には PII を送らない
-- ユーザーの解答データは暗号化 (Turso の at-rest 暗号化)
+- API キー類はサーバー側のみ (`NEXT_PUBLIC_*` 接頭辞を LLM 系キーに使わない)
+- Neon は at-rest で暗号化済み
+- Sentry には PII を送らない (`beforeSend` で絞る)
+- セッション cookie は `__Host-` prefix / `Secure` / `HttpOnly` / `SameSite=Lax`
 
 ### 6.8.4. レート制限
 
 - 個人用途のためユーザー単位の厳密な制限は不要
 - **暴走防止の保険** として、サーバーのプロセスメモリ上で 1 分 30 リクエストの簡易スロットリングのみ導入
-- Anthropic 側の月間予算アラートが主防衛線 (例: $20 超過で通知)
+- OpenAI ダッシュボードの Usage limit $20/月が主防衛線
 
 ---
 

@@ -9,7 +9,7 @@
 ### 7.1.1. 「2 タップで問題開始」
 
 - 通知 / ホーム画面アイコン → ホーム画面 → Drill カードタップ → 即出題
-- ログイン画面を挟まない (Clerk の cookie/JWT 自動)
+- ログイン画面を挟まない (Passkey 認証後の HTTP-only cookie で自動継続、ADR-0004)
 - スプラッシュ画面は最小限
 
 ### 7.1.2. 「片手操作」
@@ -439,7 +439,7 @@ Streak at risk は **やらない** (Streak 自体を出さない方針)。
 ### フロー
 
 ```
-[サインアップ]
+[Passkey 登録 (初回のみ、`navigator.credentials.create()`)]
     ↓
 [ウェルカム画面: 3 枚]
   1. 「AI がエンジニアのための問題を出します」
@@ -447,7 +447,7 @@ Streak at risk は **やらない** (Streak 自体を出さない方針)。
   3. 「あなたの学習状態を診断します」
     ↓
 [興味分野選択]
-  ☑ OS  ☑ Network  ☐ Security ...
+  ☑ programming  ☑ network  ☐ security ...
     ↓
 [レベル自己申告]
   beginner / junior / mid / senior / staff
@@ -456,11 +456,14 @@ Streak at risk は **やらない** (Streak 自体を出さない方針)。
   各分野から数問 → 初期 mastery 設定
     ↓
 [診断結果表示]
-  「OS と Network が強く、Security が伸びしろです」
+  「programming と network が強く、db が伸びしろです」
     ↓
 [最初の Daily Drill へ誘導]
   「では、今日の 10 問を始めましょう」
 ```
+
+個人用途なので「新規登録」UI は**作らない**。初期 user 行は `pnpm run auth:bootstrap` で 1 回だけ作成し、
+以降は Passkey 登録 → ログインの繰り返し。
 
 ---
 

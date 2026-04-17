@@ -8,7 +8,7 @@
 ## 概要
 
 Tanren は 1 人のエンジニア (作者) が日々の CS 学習を継続するための PWA。
-Anthropic Claude API で問題を動的生成し、FSRS で記憶曲線に沿って再出題する。
+OpenAI API で問題を動的生成し、FSRS で記憶曲線に沿って再出題する。
 
 - **ターゲット**: 作者本人 (1-2 年目エンジニア)
 - **ユースケース**: 通勤・休憩時間に 10-15 分
@@ -22,9 +22,10 @@ Anthropic Claude API で問題を動的生成し、FSRS で記憶曲線に沿っ
 # 前提: Node 22 LTS (nvm use)、pnpm
 pnpm install
 cp .env.example .env.local   # キーを埋める
-pnpm db:migrate              # Turso にスキーマ適用
+pnpm db:migrate              # Neon にスキーマ適用
 pnpm db:seed                 # 知識ツリー seed
-pnpm dev                     # http://localhost:3000
+pnpm run auth:bootstrap      # 初回のみ: 作者の user 行を作成
+pnpm dev                     # http://localhost:3000 で Passkey 登録
 ```
 
 環境変数の詳細は [`docs/06-architecture.md#662`](./docs/06-architecture.md) 参照。
@@ -66,9 +67,9 @@ Tanren/
 `docs/06-architecture.md` 参照。要点:
 
 - **Next.js 15 (App Router)** + TypeScript strict + tRPC
-- **Turso (libSQL)** + Drizzle
-- **Clerk** (認証)
-- **Anthropic Claude API** (Sonnet 4.6 / Haiku 4.5)
+- **Neon (PostgreSQL 16+)** + Drizzle (ADR-0003)
+- **Passkey (WebAuthn)** 認証 (ADR-0004)
+- **OpenAI API** (`gpt-5` / `gpt-5-mini`) (ADR-0005)
 - **shadcn/ui** + Tailwind
 - **Vitest** (テスト)
 - **Vercel** (デプロイ)
