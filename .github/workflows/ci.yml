@@ -18,24 +18,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - name: Skip if package.json is missing
+      - name: Check if Next.js project exists
         id: has_pkg
         run: |
           if [ -f package.json ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "package.json がまだ無いためスキップ (Phase 0 前)"
+            echo "::notice::package.json がまだ無いためセットアップ系ステップをスキップ (Phase 0 前)"
           fi
+
+      - name: Setup pnpm
+        if: steps.has_pkg.outputs.present == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        if: steps.has_pkg.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
 
       - name: Install
         if: steps.has_pkg.outputs.present == 'true'
@@ -56,7 +60,6 @@ jobs:
       - name: Build
         if: steps.has_pkg.outputs.present == 'true'
         env:
-          # ビルドに最低限必要な env だけダミーを入れる
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_dummy
           CLERK_SECRET_KEY: sk_test_dummy
           TURSO_DATABASE_URL: libsql://dummy.turso.io
