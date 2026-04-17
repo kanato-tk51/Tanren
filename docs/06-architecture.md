@@ -145,6 +145,7 @@ CREATE TABLE attempts (
   rubric_checks TEXT,               -- JSON
   misconception_tags TEXT,          -- JSON
   reason_given TEXT,                -- 誤答時の「なぜ」
+  copied_for_external INTEGER DEFAULT 0,  -- 「詳しく聞く用にコピー」の押下回数
   created_at INTEGER,
   FOREIGN KEY (user_id) REFERENCES users(id),
   FOREIGN KEY (session_id) REFERENCES sessions(id),
