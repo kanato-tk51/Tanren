@@ -122,7 +122,8 @@ Convert the user's natural-language request into a CustomSessionSpec JSON.
 "{raw}"
 
 ## Available domains
-[os, network, security, db, distributed, low_level, languages, practical]
+[programming, dsa, os, network, db, security, distributed, design,
+ devops, tools, low_level, ai_ml, frontend]
 
 ## Available thinking styles
 [memorization, why, comparison, trade_off, debugging, design, edge_case,
@@ -190,10 +191,13 @@ Senior level means:
 
 ### 4.6.2. 相対難易度 (+1, -1 など)
 
-ユーザーの mastery から逆引き:
-- 該当 concept の現在 mastery が 40% → intro
-- `+1` 指定 → applied
-- `+2` → edge_case
+ユーザーの mastery から「今の到達レベル」を推定し、そこから相対で指定:
+- 該当 concept の現在到達レベルが `junior` のとき
+- `+1` 指定 → `mid`
+- `+2` 指定 → `senior`
+- `-1` 指定 → `beginner`
+
+到達レベルの推定は `mastery_pct` と直近の successful difficulty から。
 
 ### 4.6.3. 面接難易度 (interview)
 
@@ -288,8 +292,9 @@ Custom で「存在しない concept (例: `network.tcp.bbrv2`)」が出たら:
 
 ### 4.10.1. MVP に含める
 
-- 自然言語入力 1 個 (フォーム UI は削る)
+- 自然言語入力 1 個
 - Haiku によるパース
+- **パース結果を読み取り専用カードで表示** (違和感あれば自然言語で再入力)。編集可能フォームは MVP では作らない
 - 既存生成プロンプトへの `thinking_style` 注入
 - 絶対難易度のみサポート (`beginner / junior / mid / senior`)
 

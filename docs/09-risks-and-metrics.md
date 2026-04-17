@@ -83,13 +83,15 @@
 - Anki と同じ末路
 
 **対策:**
-- Daily reminder 通知 (適切な時刻に)
-- Streak at risk 通知 (夜に「今日 0 問ですよ」)
-- Weekly digest で成長を可視化して自己強化
+- Daily reminder 通知 (適切な時刻に、Phase 3+ でメール配信)
+- Weekly digest で成長を可視化して自己強化 (Phase 3+、メール)
 - 「2 分で終わる最小ドリル」モード (気軽に開始)
 - Insights で成長実感を強化
 - **ホーム画面アイコンを目立つ位置に** (物理的な導線確保)
 - **作者自身が楽しい UI/UX にこだわる** (自分が使うから)
+
+Streak at risk 通知のような「義務感を生む」通知は意図的に作らない。
+Streak 自体を可視化しない (`07.2.1` / `OPEN_QUESTIONS.md Q1` 参照)。
 
 ### 9.2.6. R6: 知識ツリー不足
 

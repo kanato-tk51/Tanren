@@ -264,9 +264,10 @@ Weekly mastery growth:
 [折れ線グラフ: 縦軸 concept 数, 横軸 週]
 
 Accuracy by difficulty over time:
-  intro:      ━━━━━━━━━━━ 95%
-  applied:    ━━━━━━━╱   72% ↑ (改善中)
-  edge_case:  ━━━━╲╱     48% ↓ (停滞)
+  beginner:  ━━━━━━━━━━━ 95%
+  junior:    ━━━━━━━━━━  88%
+  mid:       ━━━━━━━╱    72% ↑ (改善中)
+  senior:    ━━━━╲╱      48% ↓ (停滞)
 
 Study time:
   平日 avg: 12 min
@@ -303,13 +304,14 @@ Domain coverage:
 
 ### 通知種別
 
-| 種類 | タイミング | 条件 | 配信 |
+| 種類 | タイミング | 条件 | 配信 (MVP 以降) |
 |---|---|---|---|
-| Daily reminder | ユーザー指定時刻 | `next_review <= today` が N 問以上 | Web Push |
-| Streak at risk | 23:00 | 今日 0 問 & 連続記録 3 日以上 | Web Push |
-| Blind spot unlocked | 任意 | prereq 完了時 | アプリ内 |
-| Weekly digest | 日曜 9:00 | 毎週 | Web Push + メール |
-| Decay warning | 任意 | 主要 concept で stability 30% 低下 | アプリ内 |
+| Daily reminder | ユーザー指定時刻 | `next_review <= today` が N 問以上 | メール (Phase 3+) |
+| Blind spot unlocked | 任意 | prereq 完了時 | アプリ内 (Phase 3+) |
+| Weekly digest | 日曜 9:00 | 毎週 | メール (Phase 3+) |
+| Decay warning | 任意 | 主要 concept で stability 30% 低下 | アプリ内 (Phase 3+) |
+
+Web Push は Phase 5+、`07.5.5` の検証後。Streak at risk は Streak 自体をやらないため無し。
 
 ### Weekly Digest の内容例
 

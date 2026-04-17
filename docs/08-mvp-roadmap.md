@@ -26,9 +26,10 @@
 - 問題生成 (Claude Sonnet 4.6)
 - 採点 (Haiku / Sonnet 混在)
 - 誤概念タグ付けの基本実装 (抽出は Sonnet)
+- **採点への反論ボタン** (再採点) — R1 対策として初日から必要
 - FSRS スケジューラ (`ts-fsrs`)
 - **Daily Drill** モード
-- **Custom Session** モード (自然言語入力のみ、パース確認 UI あり)
+- **Custom Session** モード (自然言語入力 + 読み取り専用のパース結果表示)
 - Mistake Review モード (直近誤答から)
 - Insights:
   - Dashboard (数値のみ、グラフなし)
@@ -53,7 +54,6 @@
 - Web Push 通知
 - FTS5 全文検索
 - オフライン対応
-- 反論 (採点に異議) フロー
 - 事前生成バッチ
 - 設定画面の大半
 

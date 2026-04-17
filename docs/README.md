@@ -17,6 +17,9 @@
 | 07 | [UX と PWA](./07-ux-and-pwa.md) | 画面設計、PWA 対応 |
 | 08 | [MVP とロードマップ](./08-mvp-roadmap.md) | 最初に作るもの、段階的な拡張計画 |
 | 09 | [リスクと成功指標](./09-risks-and-metrics.md) | 想定リスクと成功の定義 |
+| 10 | [タクソノミ Seed](./10-taxonomy-seed.md) | Tier 1 6 ドメインの concept リスト (YAML たたき台) |
+| —  | [未決論点 (OPEN_QUESTIONS)](./OPEN_QUESTIONS.md) | 決めずに先送りした項目の一覧 |
+| —  | [ADR](./adrs/) | Architecture Decision Record 置き場 |
 
 ## このドキュメントの目的
 
@@ -27,7 +30,8 @@
 ## ドキュメントの更新方針
 
 - 設計が変わったら該当ファイルを更新
-- 大きな方針変更は ADR (Architecture Decision Record) を別途 `docs/adrs/` に追加 (将来)
+- 大きな方針変更は ADR (Architecture Decision Record) を `docs/adrs/` に追加
+- 決めかねる論点は `OPEN_QUESTIONS.md` に寝かせる。決まったら該当ドキュメントへ反映 + ADR 化
 - 「TODO」「要検討」のマーカーは現時点では残してよい
 
 ## プロジェクトの現状

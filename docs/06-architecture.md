@@ -10,7 +10,7 @@
 ┌─────────────────────────────────────────────┐
 │ PWA (Next.js App Router)                     │
 │  /, /drill, /deep, /custom, /insights/*      │
-│  + Service Worker + Web Push                 │
+│  + Service Worker (App Shell cache のみ)     │
 └────────────────┬─────────────────────────────┘
                  │ tRPC
 ┌────────────────▼─────────────────────────────┐
@@ -19,14 +19,19 @@
 │  ├─ generator   (Claude API 呼び出し)         │
 │  ├─ grader      (Claude API 呼び出し)         │
 │  ├─ parser      (NL → CustomSessionSpec)      │
-│  ├─ insights    (集計クエリ)                  │
-│  └─ notification (Web Push, cron)             │
-└────────┬─────────┬───────────────────┬───────┘
-         │         │                   │
-    ┌────▼─┐  ┌────▼────────┐    ┌─────▼──────┐
-    │Turso │  │Anthropic API│    │Upstash Redis│
-    │libSQL│  │   (Claude)  │    │(rate limit) │
-    └──────┘  └─────────────┘    └─────────────┘
+│  └─ insights    (集計クエリ)                  │
+└────────┬─────────┬───────────────────────────┘
+         │         │
+    ┌────▼─┐  ┌────▼────────┐
+    │Turso │  │Anthropic API│
+    │libSQL│  │   (Claude)  │
+    └──────┘  └─────────────┘
+
+Phase 3+ で追加:
+  - Resend (メール配信)
+Phase 5+ で追加:
+  - Web Push (通知)
+  - Upstash Redis (複数ユーザーに開くとき)
 ```
 
 ---
@@ -52,22 +57,24 @@
 
 ```sql
 -- 知識ツリー
+-- domain は TypeScript 側の const enum (13 ドメイン) でハードコード管理。
+-- domains テーブルは作らない (マスタが YAML なので二重管理を避ける)。
 CREATE TABLE concepts (
   id TEXT PRIMARY KEY,              -- 'network.tcp.congestion'
-  domain_id TEXT NOT NULL,
-  subdomain_id TEXT,
+  domain_id TEXT NOT NULL,          -- enum: 13 ドメインのいずれか
+  subdomain_id TEXT,                -- 文字列、free-form (YAML 側で定義)
   name TEXT NOT NULL,
   description TEXT,
   prereqs TEXT,                     -- JSON array
   tags TEXT,                        -- JSON array
-  difficulty_levels TEXT,           -- JSON array
+  difficulty_levels TEXT,           -- JSON array (6段階のサブセット)
   created_at INTEGER,
   updated_at INTEGER
 );
 
 CREATE INDEX idx_concepts_domain ON concepts(domain_id);
 
--- ユーザー
+-- ユーザー (個人用途のため事実上 1 行のみ)
 CREATE TABLE users (
   id TEXT PRIMARY KEY,              -- Clerk user_id
   email TEXT UNIQUE,
@@ -75,8 +82,7 @@ CREATE TABLE users (
   timezone TEXT DEFAULT 'Asia/Tokyo',
   daily_goal INTEGER DEFAULT 15,    -- 1日の目標問題数
   notification_time TEXT,           -- HH:mm 形式
-  created_at INTEGER,
-  plan TEXT DEFAULT 'free'          -- 'free' | 'pro'
+  created_at INTEGER
 );
 
 -- 生成済み問題キャッシュ
@@ -85,7 +91,7 @@ CREATE TABLE questions (
   concept_id TEXT NOT NULL,
   type TEXT NOT NULL,               -- 'mcq' | 'short' | 'written' | ...
   thinking_style TEXT,
-  difficulty TEXT NOT NULL,         -- 'intro' | 'applied' | 'edge_case'
+  difficulty TEXT NOT NULL,         -- 'beginner'|'junior'|'mid'|'senior'|'staff'|'principal'
   prompt TEXT NOT NULL,
   answer TEXT NOT NULL,
   rubric TEXT,                      -- JSON
@@ -95,6 +101,8 @@ CREATE TABLE questions (
   tags TEXT,
   generated_by TEXT,                -- 'claude-sonnet-4-6'
   prompt_version TEXT,              -- 'v1.2.0'
+  retired INTEGER DEFAULT 0,        -- 1 なら再出題しない (事実誤認など)
+  retired_reason TEXT,
   created_at INTEGER,
   last_served_at INTEGER,
   serve_count INTEGER DEFAULT 0,
@@ -360,28 +368,47 @@ function priority(concept: Concept, mastery: Mastery): number {
 
 ## 6.5. 技術スタック (決定)
 
+個人用途なので **MVP は最小構成**。必要になったら足す方針。
+
+### 6.5.1. MVP 採用
+
 | レイヤ | 採用技術 | 理由 |
 |---|---|---|
 | Framework | **Next.js 15 (App Router)** | 慣れた技術、SSR/ISR 柔軟、Route Handlers で API 統合 |
 | Language | **TypeScript** | 型安全 |
-| Runtime | **Bun** (or Node.js) | 速度とオールインワン |
+| Runtime | **Node.js 22 LTS** | Vercel デフォルト、安定運用。Bun は魅力だが Vercel Edge 以外で相性問題あり |
 | DB | **Turso (libSQL)** | エッジ分散、無料枠、FTS5 対応 |
 | ORM | **Drizzle** | 型安全、軽い、マイグレーション直感的 |
 | API | **tRPC** | 型安全 RPC、Next.js と相性良 |
-| Auth | **Clerk** | 開発速度優先、Social ログイン標準装備 |
-| LLM | **Anthropic Claude API** | Haiku / Sonnet / Opus を用途別に |
+| Auth | **Clerk** | 1 ユーザーでも OAuth の手間を省ける。将来公開時も流用可 |
+| LLM | **Anthropic Claude API** | MVP は Haiku / Sonnet のみ。Opus は Phase 2+ |
 | UI | **shadcn/ui + Tailwind** | 短時間で整った UI |
 | Code Editor | **CodeMirror 6** | 軽量、モバイル可、言語拡張豊富 |
-| Charts | **Recharts** | React と相性、シンプル |
+| Charts (Phase 2+) | **Recharts** | React と相性、シンプル。MVP はテキスト表のみ |
 | State | **TanStack Query + Zustand** | サーバー状態 + UI 状態の分離 |
 | URL 状態 | **nuqs** | フィルタなどの URL 同期 |
-| i18n | 日本語のみ (当面) | スコープ絞る |
-| PWA | **next-pwa** or **Serwist** | Service Worker 統合 |
-| Push 通知 | **Web Push API** + `web-push` | iOS 16.4+ 対応 |
-| Rate limit | **Upstash Redis** | サーバーレスで従量課金 |
-| Analytics | **PostHog** | プロダクト分析、feature flag |
-| Deploy | **Vercel** | Next.js と相性、Turso と統合 |
-| 監視 | **Sentry** + **Logtail** (Better Stack) | エラー追跡 + ログ |
+| i18n | 日本語のみ | スコープ絞る |
+| PWA | **Serwist** (or next-pwa) | Service Worker 統合 |
+| Deploy | **Vercel Hobby** | Next.js と相性、Turso と統合 |
+| 監視 | **Sentry (Free tier)** | 個人用なのでエラー追跡のみ |
+| テスト | **Vitest** | unit/integration、軽量で速い |
+| メール | **Resend** (Phase 3+) | Weekly Digest / reminder 配信。無料枠で十分 |
+
+### 6.5.2. 意図的に MVP で入れないもの
+
+| 技術 | 入れない理由 | 再検討タイミング |
+|---|---|---|
+| Upstash Redis | 1 ユーザーで rate limit 不要。保険用途ならプロセス内メモリで十分 | 公開時 or 並列ユーザー発生時 |
+| PostHog | 自分の行動分析は Insights 画面で代用できる | 公開時 |
+| Logtail (Better Stack) | Sentry + Vercel ログで十分 | ログ量が Sentry で収まらなくなったら |
+| Web Push | iOS PWA の制約が大きい。`7.5.5` 参照 | Phase 5+、実運用可否を検証後 |
+| Opus 4.7 | 5 倍コスト。Sonnet の品質で不足を感じてから | Phase 2+ |
+| Judge0 (コード実行) | MVP の問題タイプに不要 | Phase 6 |
+
+### 6.5.3. メモ
+
+- **並列ユーザーが増えたら** Upstash + PostHog を足す前提で設計しておく (アーキ変更が要らない形で)
+- Clerk の無料枠は 10,000 MAU まで。1 人なら当然収まる
 
 ---
 
@@ -396,26 +423,38 @@ function priority(concept: Concept, mastery: Mastery): number {
 ### 6.6.2. 主要な環境変数
 
 ```
+# MVP で必要
 CLERK_PUBLISHABLE_KEY=
 CLERK_SECRET_KEY=
 TURSO_DATABASE_URL=
 TURSO_AUTH_TOKEN=
 ANTHROPIC_API_KEY=
-UPSTASH_REDIS_URL=
-UPSTASH_REDIS_TOKEN=
-POSTHOG_KEY=
 SENTRY_DSN=
+
+# Phase 3+ で追加
+RESEND_API_KEY=              # メール配信
+
+# Phase 5+ で追加
 WEB_PUSH_VAPID_PUBLIC_KEY=
 WEB_PUSH_VAPID_PRIVATE_KEY=
+UPSTASH_REDIS_URL=           # 並列ユーザー発生時
+UPSTASH_REDIS_TOKEN=
+POSTHOG_KEY=                 # 公開時
 ```
 
 ### 6.6.3. cron / バックグラウンドジョブ
 
-- **Vercel Cron** or **Turso Scheduled Tasks**
-- ジョブ:
-  - 日次: `daily_stats` 集計、Weekly Digest 配信準備
-  - 週次: Weekly Digest 生成・配信
+- **Vercel Cron** を使用
+- **MVP で入れるジョブ**:
+  - 日次: `daily_stats` 集計
+- **Phase 5+ で追加**:
+  - 週次: Weekly Digest 生成・メール配信
   - 4時間ごと: 事前生成バッチ (未充足の questions を補充)
+
+> **Vercel Hobby の Cron 制約**
+> 2 ジョブまで、かつ日次発火のみ。MVP は範囲内に収まるが、Phase 5+ で Weekly
+> Digest / 4h バッチまで入れると Pro プラン ($20/月) が必要になる。その時点で
+> 採算を再計算する。
 
 ---
 
@@ -494,17 +533,57 @@ Tanren/
 
 ### 6.8.4. レート制限
 
-- Anthropic API 呼び出しは Upstash Redis でユーザーごとに制限
-- Free: 1日 10 問、Pro: 1分 10 問
+- 個人用途のためユーザー単位の厳密な制限は不要
+- **暴走防止の保険** として、サーバーのプロセスメモリ上で 1 分 30 リクエストの簡易スロットリングのみ導入
+- Anthropic 側の月間予算アラートが主防衛線 (例: $20 超過で通知)
+
+---
+
+## 6.8a. テスト戦略
+
+個人開発なので網羅性より **「壊れたらすぐ気付く」** を優先。
+
+### 6.8a.1. 必ず書く (MVP)
+
+| 対象 | テスト種別 | ツール |
+|---|---|---|
+| FSRS スケジューラ (`ts-fsrs` ラッパ) | unit | Vitest |
+| Daily Drill 優先度計算 | unit | Vitest |
+| マスタリー計算式 | unit | Vitest |
+| NL → CustomSessionSpec パーサ (出力JSON の妥当性検証) | unit + contract | Vitest + Zod |
+| 採点プロンプトの回帰 | snapshot | Vitest + LLM 実呼出 (手動 opt-in) |
+| tRPC ルータの型整合 | tsc | TypeScript strict |
+
+### 6.8a.2. 書かない (MVP)
+
+- UI の E2E (Playwright) — 自分が手で触るので十分
+- API 全部の統合テスト — 自分が触れば壊れたら分かる
+- 採点の全組合せ網羅 — コスト対効果が合わない
+
+### 6.8a.3. プロンプト回帰テスト
+
+プロンプト変更時の退行を防ぐための軽量テスト:
+
+- `prompts/` に「代表入力」「代表期待出力」のペアを保存
+- CI ではなく手動コマンドで走らせる (LLM コストがかかるので)
+- 差分は snapshot で人間レビュー → 改悪なら revert
 
 ---
 
 ## 6.9. 観測性
 
+### 6.9.1. MVP
+
 | レイヤ | ツール |
 |---|---|
-| エラー | Sentry |
-| ログ | Logtail (Better Stack) |
-| プロダクト分析 | PostHog |
+| エラー | Sentry (Free tier) |
+| ログ | Vercel Logs (直近 1h)、必要なときだけ tail |
+| LLM トレース | 独自ログ (prompt_version, 生成/採点結果を `attempts` / `questions` に記録) |
+
+### 6.9.2. Phase 5+ で追加検討
+
+| レイヤ | ツール |
+|---|---|
+| プロダクト分析 | PostHog (公開時のみ) |
 | パフォーマンス | Vercel Analytics |
-| LLM トレース | 独自ログ (prompt_version, 生成/採点結果を attempts に記録) |
+| 長期ログ保存 | Logtail (ログ量が増えてから) |
