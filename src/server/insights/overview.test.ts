@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fetchInsightsOverview } from "./overview";
 
 // DB クライアントをテーブル別に mock して集計ロジックだけを検証する。
-// 各テストで __conceptRows / __masteryRows / __attemptCountRows / __recentRows を差し替える。
+// 各テストで fixtures.{concepts, mastery, attemptsGroup} を差し替える。
 const fixtures: {
   concepts: unknown[];
   mastery: unknown[];
