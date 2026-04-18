@@ -135,11 +135,17 @@ export const sessionRouter = router({
       // (プレビューで「指定した」と見えて実行時に無視されるのは虚偽表示に近い挙動なので)。
       if (input.customSpec?.constraints) {
         const c = input.customSpec.constraints;
-        if (c.codeLanguage || c.timeLimitSec || c.mustInclude?.length || c.avoid?.length) {
+        if (
+          c.language ||
+          c.codeLanguage ||
+          c.timeLimitSec ||
+          c.mustInclude?.length ||
+          c.avoid?.length
+        ) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message:
-              "Custom Session MVP は constraints (codeLanguage/timeLimitSec/mustInclude/avoid) 未対応です",
+              "Custom Session MVP は constraints (language/codeLanguage/timeLimitSec/mustInclude/avoid) 未対応です",
           });
         }
       }
@@ -226,13 +232,17 @@ export const sessionRouter = router({
         // Custom Session は spec.customSpec (absolute difficulty + thinking_style 等) を優先する。
         // MVP での concept 選定: customSpec.concepts[0] → daily pick の 2 段階。
         // domains / subdomains / excludeConcepts は session.start で reject 済みのためここには来ない。
+        //
+        // 認可境界: kind='custom' のときは input.conceptId で保存済み spec を迂回できないよう
+        // customSpec.concepts[0] を強制する (セッション開始時に確定した spec が唯一の真実の源)。
         const customSpec = spec.customSpec;
         const customConceptId = customSpec?.concepts?.[0];
-        const conceptRow = input.conceptId
-          ? await loadConcept(input.conceptId)
-          : customConceptId
-            ? await loadConcept(customConceptId)
-            : await pickConceptForDrill(ctx.user.id);
+        const effectiveConceptId = customSpec
+          ? (customConceptId ?? null)
+          : (input.conceptId ?? null);
+        const conceptRow = effectiveConceptId
+          ? await loadConcept(effectiveConceptId)
+          : await pickConceptForDrill(ctx.user.id);
 
         // 直近 STREAK_FOR_PROMOTION 件の同 concept の attempts を見て、3 連続正解なら次出題を 1 段昇格
         const recent = await getDb()
@@ -325,6 +335,8 @@ export const sessionRouter = router({
         });
       }
 
+      // Custom Session の updateMastery=false は FSRS/mastery 更新をスキップ (docs/04 §4.9.2)
+      const submitUpdateMastery = spec.customSpec?.updateMastery ?? true;
       const result = await gradeAttempt({
         userId: ctx.user.id,
         sessionId: session.id,
@@ -332,6 +344,7 @@ export const sessionRouter = router({
         userAnswer: input.userAnswer,
         elapsedMs: input.elapsedMs,
         reasonGiven: input.reasonGiven,
+        updateMastery: submitUpdateMastery,
       });
 
       // 二重送信対策: sql で原子インクリメント + pendingQuestionId 一致 + finishedAt is null の

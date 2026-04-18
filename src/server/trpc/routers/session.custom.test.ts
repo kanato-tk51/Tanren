@@ -113,6 +113,35 @@ describe("session.start with customSpec validation", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
+  it("MVP 未対応: constraints.language も BAD_REQUEST", async () => {
+    await expect(
+      caller.session.start({
+        kind: "custom",
+        customSpec: {
+          questionCount: 3,
+          difficulty: { kind: "absolute", level: "junior" },
+          constraints: { language: "en" },
+        },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("questionTypes=['mcq'] 単体は accept (正のケース: DB まで到達する)", async () => {
+    // DB へのアクセスは fake user ではエラーになるので、start 入力バリデーションを通過して
+    // DB 層に到達したことの確認として、バリデーション以外のエラーに落ちれば OK。
+    const promise = caller.session.start({
+      kind: "custom",
+      customSpec: {
+        questionCount: 3,
+        difficulty: { kind: "absolute", level: "junior" },
+        questionTypes: ["mcq"],
+      },
+    });
+    await expect(promise).rejects.not.toMatchObject({
+      message: expect.stringContaining("questionTypes"),
+    });
+  });
+
   it("MVP 未対応: constraints の実効フィールドがあれば BAD_REQUEST", async () => {
     await expect(
       caller.session.start({

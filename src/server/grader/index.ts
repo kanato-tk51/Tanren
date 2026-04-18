@@ -25,6 +25,12 @@ export type GradeAttemptInput = {
   elapsedMs?: number;
   /** 「なぜそう答えたか」(任意、誤概念抽出に使う) */
   reasonGiven?: string;
+  /**
+   * FSRS / mastery 更新を行うか。Custom Session で updateMastery=false が指定された
+   * 場合に false を渡すと、attempts への記録はするが mastery テーブルへの波及を抑止する
+   * (docs/04 §4.9.2)。未指定なら true (通常 Drill の挙動)。
+   */
+  updateMastery?: boolean;
 };
 
 export type GradeAttemptResult = {
@@ -144,12 +150,16 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
 
   if (inserted[0]) {
     grade.attempt.id = inserted[0].id;
-    // 採点成功したときだけ mastery を更新 (二重 submit の losing race は更新しない)
-    await updateMasteryAfterAttempt({
-      userId: input.userId,
-      conceptId: question.conceptId,
-      score: grade.score,
-    });
+    // 採点成功したときだけ mastery を更新 (二重 submit の losing race は更新しない)。
+    // Custom Session で updateMastery=false が指定されたときは attempts のみ残して
+    // FSRS / mastery は触らない (docs/04 §4.9.2 「お試しモード」)。
+    if (input.updateMastery !== false) {
+      await updateMasteryAfterAttempt({
+        userId: input.userId,
+        conceptId: question.conceptId,
+        score: grade.score,
+      });
+    }
     return grade;
   }
 
