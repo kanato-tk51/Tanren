@@ -27,10 +27,16 @@
 
 ### 1.3. 環境変数
 
+**このプロジェクトではローカルに `.env.local` を置かない**運用にする。
+Vercel の Development 環境に登録した変数を `vercel dev` / `with-vercel-env.sh` 経由で
+ランタイムに注入する (§5 参照)。
+
 ```bash
-cp .env.example .env.local
-# 各サービスで取得した値を埋める
+pnpm dlx vercel login   # 初回のみ
+pnpm dlx vercel link    # 初回のみ、このディレクトリをプロジェクトに紐付け
 ```
+
+`.env.example` は「Vercel の env にどんな変数があるべきか」のドキュメント代わり。
 
 ---
 
@@ -70,7 +76,8 @@ pnpm add -D drizzle-kit vitest @vitest/coverage-v8 @vitejs/plugin-react \
 ```jsonc
 {
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "vercel dev",
+    "dev:local": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
@@ -78,16 +85,19 @@ pnpm add -D drizzle-kit vitest @vitest/coverage-v8 @vitejs/plugin-react \
     "format": "prettier --write .",
     "test": "vitest",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:seed": "tsx src/db/seed/run.ts",
-    "db:studio": "drizzle-kit studio",
-    "auth:bootstrap": "tsx src/server/auth/bootstrap.ts",
+    "db:migrate": "./scripts/with-vercel-env.sh drizzle-kit migrate",
+    "db:seed": "./scripts/with-vercel-env.sh tsx src/db/seed/run.ts",
+    "db:studio": "./scripts/with-vercel-env.sh drizzle-kit studio",
+    "auth:bootstrap": "./scripts/with-vercel-env.sh tsx src/server/auth/bootstrap.ts",
     "prepare": "lefthook install"
   },
   "packageManager": "pnpm@10.0.0",
   "engines": { "node": ">=22.0.0 <23.0.0" }
 }
 ```
+
+- `pnpm dev` = `vercel dev` (クラウドから env 取得、推奨)
+- `pnpm dev:local` = 素の `next dev` (Vercel API オフライン時のフォールバック。動かすには一時的に `.env.local` を作る)
 
 最後に lefthook を有効化:
 
@@ -182,7 +192,53 @@ feat/xxx ─PR→ main ─自動→ Vercel Preview   (Neon: ephemeral branch)
 
 ---
 
-## 5. 日々の開発フロー
+## 5. 開発時の env 変数運用
+
+### 5.1. 基本方針
+
+- **`.env.local` をローカルに作らない** (秘密情報をディスクに落とさない)
+- **Vercel の Development 環境** に登録した変数を `vercel dev` が自動注入
+- CLI スクリプト (drizzle-kit, tsx など) は `scripts/with-vercel-env.sh` ラッパ経由で実行
+
+### 5.2. 通常の開発サーバー起動
+
+```bash
+pnpm dev       # 実体は `vercel dev`
+```
+
+起動時に Vercel API から Development env 変数を取得し、Next.js に注入。終了するとメモリから消える。
+**`.env.local` は作らない**。
+
+### 5.3. CLI スクリプトを env 付きで走らせる
+
+```bash
+pnpm db:migrate       # 内部で ./scripts/with-vercel-env.sh 経由
+pnpm db:seed
+pnpm db:studio
+pnpm auth:bootstrap
+```
+
+このラッパは:
+1. `vercel env pull` で `mktemp` の一時ファイルに Development env を取得
+2. `source` して `export` し、引数のコマンドを実行
+3. 終了時に trap で一時ファイルを必ず削除
+
+### 5.4. 別環境を触りたいとき (稀)
+
+```bash
+WITH_VERCEL_ENV_TARGET=preview ./scripts/with-vercel-env.sh pnpm tsx scripts/debug.ts
+WITH_VERCEL_ENV_TARGET=production ./scripts/with-vercel-env.sh pnpm db:studio
+```
+
+### 5.5. 注意点
+
+- オフラインで動かない (Vercel API 呼び出しが必要)
+- 初回は `vercel link` が必須
+- CI では env を Vercel から取らず、ダミー値を GitHub Actions の `env:` で渡す (現行設定どおり)
+
+---
+
+## 6. 日々の開発フロー
 
 ```bash
 # 1. 最新 main を取得
@@ -192,6 +248,7 @@ git checkout main && git pull
 git checkout -b feat/xxx
 
 # 3. 実装 (lefthook が pre-commit で format/lint/typecheck)
+pnpm dev
 ...
 
 # 4. コミット (Conventional Commits 形式)
@@ -206,7 +263,7 @@ PR テンプレートのチェックを埋めて、CI が緑なら self-approve 
 
 ---
 
-## 6. トラブルシュート
+## 7. トラブルシュート
 
 | 症状 | 対処 |
 |---|---|

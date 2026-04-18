@@ -109,6 +109,15 @@
 - tRPC の `protectedProcedure` を通ったハンドラでは `ctx.user` が常に存在する前提で書ける
 - cookie 名 `__Host-tanren_session` を変えない (CSRF 耐性のため prefix 必須)
 
+### 4.9. 環境変数
+
+- **ローカルに `.env.local` を作らない**。Vercel の Development 環境が唯一の真実
+- 開発サーバーは `pnpm dev` (= `vercel dev`)、CLI は `./scripts/with-vercel-env.sh <cmd>` で env 注入
+- 新しい env 変数を追加するときは:
+  1. `.env.example` に名前とコメントを追加 (ドキュメント代わり)
+  2. `pnpm dlx vercel env add <NAME> development preview production` で Vercel に登録
+  3. `docs/06-architecture.md` 6.6.2 の一覧を同期
+
 ## 5. docs/ と実装の同期
 
 **ドキュメントは実装と同期して更新するのが絶対ルール**。
