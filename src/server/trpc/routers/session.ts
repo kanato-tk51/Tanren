@@ -7,16 +7,26 @@ import {
   attempts,
   concepts,
   DIFFICULTY_LEVELS,
+  DOMAIN_IDS,
   SESSION_KINDS,
   sessions,
   THINKING_STYLES,
   type DifficultyLevel,
+  type DomainId,
 } from "@/db/schema";
 import type { CopyForLlmQuestionMeta } from "@/lib/share/copy-for-llm";
 import { generateMcq } from "@/server/generator/mcq";
 import { gradeAttempt } from "@/server/grader";
 import { CustomSessionSpecSchema, type CustomSessionSpec } from "@/server/parser/schema";
 import { selectDailyCandidates } from "@/server/scheduler/daily";
+import {
+  DEEP_DIVE_DEFAULT_COUNT,
+  DEEP_DIVE_MAX_COUNT,
+  DEEP_DIVE_MIN_COUNT,
+  pickDeepDiveStep,
+  selectDeepDiveQueue,
+  type DeepStep,
+} from "@/server/scheduler/deep-dive";
 import {
   DIAGNOSTIC_DEFAULT_COUNT,
   DIAGNOSTIC_MAX_COUNT,
@@ -53,6 +63,10 @@ type SessionSpec = {
   diagnosticConceptIds?: string[];
   /** Diagnostic で使う固定難易度 (= user.selfLevel)。kind='diagnostic' のみ埋まる */
   diagnosticDifficulty?: DifficultyLevel;
+  /** Deep Dive (issue #28) の開始時に決まった (conceptId, difficulty) のキュー。kind='deep' のみ埋まる */
+  deepQueue?: DeepStep[];
+  /** Deep Dive のドメイン (spec 整合性チェック用)。kind='deep' のみ埋まる */
+  deepDomainId?: DomainId;
 };
 
 async function loadSession(sessionId: string, userId: string) {
@@ -116,6 +130,8 @@ export const sessionRouter = router({
         targetCount: z.number().int().min(1).max(20).optional(),
         /** Custom Session 指定時のみ。パース結果 (CustomSessionSpec) を Zod で再検証 */
         customSpec: CustomSessionSpecSchema.optional(),
+        /** Deep Dive (issue #28) の対象ドメイン。kind='deep' のとき必須 */
+        domainId: z.enum(DOMAIN_IDS).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -242,6 +258,40 @@ export const sessionRouter = router({
         reviewTargetCount = clamped;
       }
 
+      // Deep Dive (issue #28): domain 内 concept を prereqs トポロジカルソート + difficulty 昇順で
+      // 並べて targetCount 件の (conceptId, difficulty) キューを作る。domain 未指定なら BAD_REQUEST、
+      // 候補 0 件は PRECONDITION_FAILED。domainId は kind='deep' 以外で指定されたら reject (混入防止)。
+      let deepQueue: DeepStep[] | undefined;
+      let deepTargetCount: number | undefined;
+      let deepDomainId: DomainId | undefined;
+      if (input.kind === "deep") {
+        if (!input.domainId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "kind='deep' には domainId が必要です",
+          });
+        }
+        const clamped = Math.min(
+          Math.max(input.targetCount ?? DEEP_DIVE_DEFAULT_COUNT, DEEP_DIVE_MIN_COUNT),
+          DEEP_DIVE_MAX_COUNT,
+        );
+        const queue = await selectDeepDiveQueue({ domainId: input.domainId, count: clamped });
+        if (queue.length === 0) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `domain="${input.domainId}" に concept がありません`,
+          });
+        }
+        deepQueue = queue;
+        deepTargetCount = queue.length;
+        deepDomainId = input.domainId;
+      } else if (input.domainId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "domainId は kind='deep' のときだけ指定できます",
+        });
+      }
+
       // Diagnostic (issue #26): user.interestDomains × user.selfLevel から concept キューを作る。
       // user 側の prefs が空なら PRECONDITION_FAILED で onboarding.savePreferences を促す。
       // targetCount は DIAGNOSTIC_MIN..MAX に強制 clamp。candidates 0 件なら PRECONDITION_FAILED。
@@ -283,12 +333,14 @@ export const sessionRouter = router({
       //   1. Custom Session の questionCount
       //   2. Review の場合は reviewTargetCount (10..15 clamp)
       //   3. Diagnostic の場合は diagnosticTargetCount (= queue.length)
-      //   4. input.targetCount
-      //   5. 既定 5
+      //   4. Deep Dive の場合は deepTargetCount (= queue.length)
+      //   5. input.targetCount
+      //   6. 既定 5
       const targetCount =
         input.customSpec?.questionCount ??
         reviewTargetCount ??
         diagnosticTargetCount ??
+        deepTargetCount ??
         input.targetCount ??
         DEFAULT_DRILL_LENGTH;
       const spec: SessionSpec = {
@@ -298,6 +350,8 @@ export const sessionRouter = router({
         ...(reviewConceptIds ? { reviewConceptIds } : {}),
         ...(diagnosticConceptIds ? { diagnosticConceptIds } : {}),
         ...(diagnosticDifficulty ? { diagnosticDifficulty } : {}),
+        ...(deepQueue ? { deepQueue } : {}),
+        ...(deepDomainId ? { deepDomainId } : {}),
       };
       const [session] = await db
         .insert(sessions)
@@ -375,13 +429,19 @@ export const sessionRouter = router({
           session.kind === "diagnostic"
             ? pickDiagnosticConcept(spec.diagnosticConceptIds ?? [], session.questionCount)
             : null;
+        const deepStep =
+          session.kind === "deep"
+            ? pickDeepDiveStep(spec.deepQueue ?? [], session.questionCount)
+            : null;
         const effectiveConceptId = reviewConceptId
           ? reviewConceptId
           : diagnosticConceptId
             ? diagnosticConceptId
-            : customSpec
-              ? (customConceptId ?? null)
-              : (input.conceptId ?? null);
+            : deepStep
+              ? deepStep.conceptId
+              : customSpec
+                ? (customConceptId ?? null)
+                : (input.conceptId ?? null);
         // Custom で concept 未指定 + difficulty 指定時は、pickConceptForDrill で
         // その難易度を許容する concept のみを候補にする (start 時の整合は
         // concept 未指定ケースで検証できないので、ここでも補完的に filter)。
@@ -397,18 +457,22 @@ export const sessionRouter = router({
           .orderBy(desc(attempts.createdAt))
           .limit(STREAK_FOR_PROMOTION);
         // 難易度の決定:
-        //   1. 「昇格しない」モード = Custom Session または Diagnostic
+        //   1. 「昇格しない」モード = Custom / Diagnostic / Deep Dive
         //      - Custom: customSpec.difficulty を優先、無ければ concept.difficultyLevels[0] → input.difficulty fallback
         //      - Diagnostic: spec.diagnosticDifficulty (= user.selfLevel) を優先、無ければ concept fallback
+        //      - Deep Dive: deepStep.difficulty (予め topo+difficulty 昇順に決定) を優先、無ければ concept fallback
         //   2. 通常 (Daily / Review): input.difficulty を起点に 3 連続正解で 1 段昇格
         // どちらのモードでも、concept が選んだ難易度を含まなければ concept.difficultyLevels[0] に
         // 改めて fallback する (input.difficulty 既定 'junior' が concept 非対応で generateMcq が落ちる回避)。
-        const skipPromotion = customSpec != null || session.kind === "diagnostic";
+        const skipPromotion =
+          customSpec != null || session.kind === "diagnostic" || session.kind === "deep";
         const preferredDifficulty: DifficultyLevel = customSpec
           ? (customSpec.difficulty?.level ?? conceptRow.difficultyLevels[0] ?? input.difficulty)
           : session.kind === "diagnostic"
             ? (spec.diagnosticDifficulty ?? conceptRow.difficultyLevels[0] ?? input.difficulty)
-            : input.difficulty;
+            : session.kind === "deep"
+              ? (deepStep?.difficulty ?? conceptRow.difficultyLevels[0] ?? input.difficulty)
+              : input.difficulty;
         const requestedDifficulty: DifficultyLevel = conceptRow.difficultyLevels.includes(
           preferredDifficulty,
         )

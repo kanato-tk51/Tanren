@@ -31,14 +31,18 @@ function ProgressBar({ value }: { value: number }) {
 function ItemRow({
   item,
   hint,
+  showDeepDive,
 }: {
   item: OverviewItem;
   hint: (it: OverviewItem) => string | null;
+  /** Weakest カード等で「このドメインを Deep Dive」導線を出すかどうか (issue #28) */
+  showDeepDive?: boolean;
 }) {
   const message = hint(item);
   // /custom?conceptId=... に直接 conceptId を渡し、parser を迂回して customSpec.concepts を
   // 決定論的に固定する (Round 3 指摘 #1: 自然言語 prefill では別 concept に解釈されうる)。
   const customHref = `/custom?conceptId=${encodeURIComponent(item.conceptId)}`;
+  const deepHref = `/deep/${encodeURIComponent(item.domainId)}`;
   return (
     <li className="border-border rounded-md border p-2 text-sm">
       <div className="flex items-baseline justify-between gap-2">
@@ -51,10 +55,15 @@ function ItemRow({
       <div className="text-muted-foreground mt-1 text-xs">
         {item.domainId} / {item.subdomainId} ・ {item.conceptId}
       </div>
-      <div className="mt-2">
+      <div className="mt-2 flex flex-wrap gap-2">
         <Button asChild variant="outline" size="sm">
           <Link href={customHref}>🎯 この concept を出題</Link>
         </Button>
+        {showDeepDive && (
+          <Button asChild variant="outline" size="sm">
+            <Link href={deepHref}>🏊 {item.domainId} を Deep Dive</Link>
+          </Button>
+        )}
       </div>
     </li>
   );
@@ -138,6 +147,7 @@ export function InsightsOverviewScreen() {
                       ? `${it.attemptCount} 問中 ${it.wrongCount} 問ミス (全期間)`
                       : null
                   }
+                  showDeepDive
                 />
               ))}
             </ul>
