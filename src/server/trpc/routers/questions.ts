@@ -14,15 +14,15 @@ export const questionsRouter = router({
         type: z.literal("mcq"),
         difficulty: z.enum(DIFFICULTY_LEVELS),
         thinkingStyle: z.enum(THINKING_STYLES).nullable(),
-        forceFresh: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }) => {
+      // forceFresh は公開 API に露出させず、サーバー側のフラグ (NODE_ENV=development かつ
+      // テストで必要な場合) でのみ許可する。Passkey 認証済みでも OpenAI コスト削減経路を塞ぐ。
       const result = await generateMcq({
         conceptId: input.conceptId,
         difficulty: input.difficulty,
         thinkingStyle: input.thinkingStyle,
-        forceFresh: input.forceFresh,
       });
       return {
         source: result.source,

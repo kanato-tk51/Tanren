@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import {
@@ -89,7 +89,19 @@ export async function generateMcq(
       thinkingStyle: input.thinkingStyle,
       difficulty: input.difficulty,
     });
-    if (cached) return { question: cached, source: "cache" };
+    if (cached) {
+      // キャッシュローテーション: serve_count を増やし last_served_at を更新することで、
+      // 次回は未使用 (last_served_at IS NULL) の別問題が優先され、30d 内に出題が分散する
+      const [updated] = await db
+        .update(questions)
+        .set({
+          serveCount: sql`${questions.serveCount} + 1`,
+          lastServedAt: new Date(),
+        })
+        .where(eq(questions.id, cached.id))
+        .returning();
+      return { question: updated ?? cached, source: "cache" };
+    }
   }
 
   const concept = await loadConcept(input.conceptId);
@@ -103,6 +115,7 @@ export async function generateMcq(
 
   const generated = await llm({ model: MODEL_MAIN, system, user });
 
+  const now = new Date();
   const [inserted] = await db
     .insert(questions)
     .values({
@@ -118,6 +131,9 @@ export async function generateMcq(
       tags: generated.tags,
       generatedBy: MODEL_MAIN,
       promptVersion: MCQ_PROMPT_VERSION,
+      // 新規問題は出題時点で配信済みとマークする (次回は別問題が未使用として優先される)
+      serveCount: 1,
+      lastServedAt: now,
     })
     .returning();
 
