@@ -517,9 +517,12 @@ Tanren/
 │   │   │   ├── history/           # /insights/history
 │   │   │   └── search/            # /insights/search
 │   │   ├── review/                # /review (Mistake Review)
-│   │   └── api/trpc/[trpc]/       # tRPC fetch handler
+│   │   └── api/
+│   │       ├── auth/              # /api/auth/{register,authenticate,logout,dev-login}
+│   │       └── trpc/[trpc]/       # tRPC fetch handler
 │   ├── server/
 │   │   ├── trpc/                  # tRPC ルータ
+│   │   ├── auth/                  # Passkey (WebAuthn) セッション管理
 │   │   ├── scheduler/             # FSRS ロジック + daily / review 候補選定
 │   │   ├── generator/             # 問題生成
 │   │   ├── grader/                # 採点 + rebut + 誤概念抽出
@@ -530,6 +533,8 @@ Tanren/
 │   │   ├── seed/                  # 知識ツリー YAML
 │   │   └── client.ts
 │   ├── features/                  # フィーチャーモジュール
+│   │   ├── auth/                  # /login の Passkey 登録・認証 UI
+│   │   ├── home/                  # / の Home Screen
 │   │   ├── drill/                 # 出題 UI + rebut / copy-for-llm
 │   │   ├── custom/                # Custom Session 入力フロー
 │   │   ├── insights/              # Dashboard / History / Search
