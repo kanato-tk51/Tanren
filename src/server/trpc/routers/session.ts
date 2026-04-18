@@ -49,17 +49,25 @@ async function loadSession(sessionId: string, userId: string) {
   return row;
 }
 
-async function pickConceptForDrill(userId: string) {
+async function pickConceptForDrill(userId: string, requiredDifficulty?: DifficultyLevel) {
   // Daily Drill の優先度アルゴリズム (docs/06 §6.4) に委譲。
   // due / blind_spot のどちらも空 (= mastered な concept が無く、かつ prereqs が空の concept も無い)
   // だと候補が 0 件になる。MVP の seed (10 concept) では prereqs なし concept が複数あり bootstrap 時も候補が埋まるが、
   // 念のため PRECONDITION_FAILED でクライアントに状況を知らせる。
-  const candidates = await selectDailyCandidates({ userId, count: 1 });
-  if (candidates[0]) return candidates[0].concept;
+  // Custom Session の difficulty 指定時は、上位 10 件からその難易度を許容する concept を選ぶ。
+  const candidates = await selectDailyCandidates({
+    userId,
+    count: requiredDifficulty ? 10 : 1,
+  });
+  const compatible = requiredDifficulty
+    ? candidates.filter((c) => c.concept.difficultyLevels.includes(requiredDifficulty))
+    : candidates;
+  if (compatible[0]) return compatible[0].concept;
   throw new TRPCError({
     code: "PRECONDITION_FAILED",
-    message:
-      "no drill candidate: seed にある concept が 0 件か、全 concept の prereqs が未充足。seed を確認してください",
+    message: requiredDifficulty
+      ? `difficulty=${requiredDifficulty} を許容する concept が候補に無い。concepts を明示指定してください`
+      : "no drill candidate: seed にある concept が 0 件か、全 concept の prereqs が未充足。seed を確認してください",
   });
 }
 
@@ -261,9 +269,12 @@ export const sessionRouter = router({
         const effectiveConceptId = customSpec
           ? (customConceptId ?? null)
           : (input.conceptId ?? null);
+        // Custom で concept 未指定 + difficulty 指定時は、pickConceptForDrill で
+        // その難易度を許容する concept のみを候補にする (start 時の整合は
+        // concept 未指定ケースで検証できないので、ここでも補完的に filter)。
         const conceptRow = effectiveConceptId
           ? await loadConcept(effectiveConceptId)
-          : await pickConceptForDrill(ctx.user.id);
+          : await pickConceptForDrill(ctx.user.id, customSpec?.difficulty?.level);
 
         // 直近 STREAK_FOR_PROMOTION 件の同 concept の attempts を見て、3 連続正解なら次出題を 1 段昇格
         const recent = await getDb()
