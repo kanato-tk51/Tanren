@@ -8,9 +8,12 @@ import { gradeMastery } from "./fsrs";
 /**
  * 採点直後に mastery を upsert する統合関数。
  *
- * 原子性: 現在値を読んで gradeMastery で次状態を計算した後、書き戻す際は
- * reviewCount と lapseCount のみ SQL の +1 / +0 増分で書く。stability や next_review 等の
- * 絶対値は同じ呼び出し内では read-calc-write のままだが、MVP (作者 1 人) ではほぼ並行しない。
+ * 原子性 (docs/OPEN_QUESTIONS.md Q12):
+ *   - reviewCount / lapseCount は SQL +1 で atomic
+ *   - stability / nextReview などの FSRS 本体状態は read-calc-write のままで、
+ *     並行 attempt で最後の writer が他方の遷移を落とす可能性が残る
+ *   - 作者 1 人の MVP では並行 attempt は事実上発生しないため許容。マルチユーザー化時に
+ *     websocket ドライバ + transaction、または mastery に version 列を追加して楽観ロックに切り替える。
  */
 export async function updateMasteryAfterAttempt(params: {
   userId: string;

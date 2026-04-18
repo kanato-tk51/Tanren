@@ -63,6 +63,12 @@
 - **残る論点**: 個人開発で数値目標を持つ意味は薄いが、FSRS / スケジューラの主要関数は 100% 行カバー目指すべきか。
 - **判定**: 数値目標は置かず、「壊れて気付かなかった事故が起きた部分にはテストを足す」帰納的な運用で。
 
+## Q12. mastery upsert の read-modify-write 並行安全
+
+- **現状**: `src/server/scheduler/update-mastery.ts` は `SELECT → gradeMastery() → INSERT ... ON CONFLICT DO UPDATE` の流れ。`reviewCount` / `lapseCount` は SQL の `+1` で atomic 化したが、`stability` / `difficulty` / `nextReview` 等の FSRS 本体状態は絶対値上書き。
+- **残る論点**: Neon HTTP ドライバは transactions 未サポート (`@neondatabase/serverless` の websocket 版で対応可) のため、同一 (userId, conceptId) への並行 attempt で最後の writer が他方の FSRS 遷移を落とす可能性。
+- **判定**: 作者 1 人が使う個人プロジェクト (`01-vision`) のため並行 attempt は事実上発生しない。MVP では現状のまま、将来マルチユーザー化するなら (a) websocket ドライバに切り替えて transaction 化、(b) mastery に version 列を追加して楽観ロック、どちらかを採る。
+
 ## Q11. seed orphan (YAML から削除された concept の DB 側残留)
 
 - **現状**: `src/db/seed/run.ts` は upsert のみで、YAML から消した concept は DB に残り、警告が出るだけ。
