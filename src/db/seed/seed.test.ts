@@ -31,10 +31,10 @@ describe("seed file", () => {
   });
 
   it("toConceptRow が Drizzle 形式に正しく変換する (domainId / difficultyLevels / snake->camel)", () => {
-    const sample = parsed.concepts.find((c) => c.id === "network.http.methods");
+    const sample = parsed.concepts.find((c) => c.id === "network.http.methods_idempotency");
     expect(sample).toBeDefined();
     const row = toConceptRow(sample!);
-    expect(row.id).toBe("network.http.methods");
+    expect(row.id).toBe("network.http.methods_idempotency");
     expect(row.domainId).toBe("network");
     expect(row.subdomainId).toBe("http");
     expect(row.difficultyLevels).toEqual(["beginner", "junior"]);

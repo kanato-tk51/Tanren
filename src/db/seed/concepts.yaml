@@ -38,8 +38,8 @@ concepts:
     difficulty_levels: [beginner, junior]
     tags: [analysis]
 
-  - id: dsa.structures.hash_table
-    name: ハッシュテーブル
+  - id: dsa.structures.hash_map
+    name: ハッシュマップ
     domain: dsa
     subdomain: structures
     description: 平均 O(1) のキー探索、衝突解決と負荷率
@@ -48,7 +48,7 @@ concepts:
     tags: [hash, collisions]
 
   # network (2)
-  - id: network.http.methods
+  - id: network.http.methods_idempotency
     name: HTTP メソッドと冪等性
     domain: network
     subdomain: http
@@ -65,8 +65,8 @@ concepts:
     tags: [rest]
 
   # db (1)
-  - id: db.rdb.indexes
-    name: インデックス (B-tree)
+  - id: db.rdb.btree_index
+    name: B-tree インデックス
     domain: db
     subdomain: rdb
     description: B-tree インデックスの仕組みと、どのクエリを高速化できるか
@@ -74,11 +74,11 @@ concepts:
     tags: [performance]
 
   # tools (1)
-  - id: tools.git.rebase_vs_merge
-    name: rebase と merge の使い分け
+  - id: tools.git.branching_merging
+    name: ブランチ運用とマージ戦略
     domain: tools
     subdomain: git
-    description: 履歴線形化と統合コミットのトレードオフ、共有ブランチで rebase しない理由
+    description: 共有ブランチでのマージ / rebase の使い分け、チームでの履歴設計
     difficulty_levels: [junior, mid]
     tags: [git]
 
