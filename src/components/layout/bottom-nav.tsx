@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/cn";
 
-import { NAV_TABS, type NavTabId } from "./nav-routes";
+import { activeTabId, NAV_TABS, type NavTabId } from "./nav-routes";
 
 const ICONS: Record<NavTabId, typeof Home> = {
   home: Home,
@@ -16,6 +16,7 @@ const ICONS: Record<NavTabId, typeof Home> = {
 
 export function BottomNav() {
   const pathname = usePathname() ?? "/";
+  const activeId = activeTabId(pathname);
   return (
     <nav
       aria-label="主要ナビゲーション"
@@ -23,7 +24,7 @@ export function BottomNav() {
     >
       {NAV_TABS.map((tab) => {
         const Icon = ICONS[tab.id];
-        const active = tab.matches(pathname);
+        const active = tab.id === activeId;
         return (
           <Link
             key={tab.id}

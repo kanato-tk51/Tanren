@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, Check, Loader2, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -121,20 +121,62 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
 
   // セッション中の戻るジェスチャ / タブ閉じで意図せず終了しないよう警告
   // (issue #25 受け入れ基準: 戻るジェスチャで意図しない終了を防ぐ)。
-  // - asking: 解答前
-  // - graded: 解答済みで「次へ」未操作
-  // finished / idle ではブロックしない (作業継続中ではないため)。
+  //
+  // - beforeunload: タブ閉じ / リロード / 外部ドメイン遷移 (browser ネイティブの確認)
+  // - popstate + sentinel pushState: SPA 内の戻る (iOS edge swipe / Android back / browser back)。
+  //   beforeunload は SPA の popstate では発火しないため、別経路で intercept する必要がある。
+  //
+  // phase が asking | graded のときのみ guard を有効化。最新 phase は ref 経由で参照し、
+  // listener を毎回 re-bind しない (sentinel が phase 切替で重複 push されないように)。
+  const phaseRef = useRef(phase);
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
   useEffect(() => {
     if (!sessionId) return;
-    if (phase !== "asking" && phase !== "graded") return;
+
+    // beforeunload: タブ閉じ / reload
     function onBeforeUnload(e: BeforeUnloadEvent) {
+      const p = phaseRef.current;
+      if (p !== "asking" && p !== "graded") return;
       e.preventDefault();
-      // Chrome 互換のため returnValue を空文字でもセットする
       e.returnValue = "";
     }
     window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [sessionId, phase]);
+
+    // popstate guard: SPA 内の戻るジェスチャ
+    let trapPushed = false;
+    function pushTrap() {
+      if (trapPushed) return;
+      window.history.pushState({ tanren: "drill-guard" }, "");
+      trapPushed = true;
+    }
+    function onPopState() {
+      // popstate 発火 = trap entry が consume された
+      trapPushed = false;
+      const p = phaseRef.current;
+      if (p !== "asking" && p !== "graded") return;
+      const leave = window.confirm("セッションを離れますか? 回答中の進捗は失われます。");
+      if (leave) {
+        // 確認 OK: もう 1 段戻って元の画面へ
+        window.history.back();
+      } else {
+        // キャンセル: trap を再度積んで /drill に留まる
+        pushTrap();
+      }
+    }
+    pushTrap();
+    window.addEventListener("popstate", onPopState);
+
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("popstate", onPopState);
+      // 残った trap entry はクリーンアップしない (history.back を呼ぶと
+      // セッション完了直後に意図しない戻りが起きる)。stack に 1 つ余分に残るだけで、
+      // 次回ユーザーが back した時に consume される。
+    };
+  }, [sessionId]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
