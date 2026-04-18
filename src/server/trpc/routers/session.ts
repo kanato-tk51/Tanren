@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "@/db/client";
@@ -10,9 +10,11 @@ import {
   SESSION_KINDS,
   sessions,
   THINKING_STYLES,
+  type DifficultyLevel,
 } from "@/db/schema";
 import { generateMcq } from "@/server/generator/mcq";
 import { gradeAttempt } from "@/server/grader";
+import { STREAK_FOR_PROMOTION, computePromotion } from "@/server/scheduler/promotion";
 
 import { protectedProcedure, router } from "../init";
 
@@ -48,6 +50,13 @@ async function pickConceptForDrill() {
   if (!row) {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: "no seeded concept" });
   }
+  return row;
+}
+
+async function loadConcept(conceptId: string) {
+  const rows = await getDb().select().from(concepts).where(eq(concepts.id, conceptId)).limit(1);
+  const row = rows[0];
+  if (!row) throw new TRPCError({ code: "NOT_FOUND", message: `unknown concept: ${conceptId}` });
   return row;
 }
 
@@ -132,13 +141,29 @@ export const sessionRouter = router({
       }
 
       // 予約後に問題生成が失敗したら pendingQuestionId を null に戻してセッションを復帰させる。
-      // finally では throw を再送出するので、ロールバック自体が成功しなくても本体エラーが優先される
       let question: Awaited<ReturnType<typeof generateMcq>>["question"];
       try {
-        const concept = input.conceptId ? { id: input.conceptId } : await pickConceptForDrill();
+        const conceptRow = input.conceptId
+          ? await loadConcept(input.conceptId)
+          : await pickConceptForDrill();
+
+        // 直近 STREAK_FOR_PROMOTION 件の同 concept の attempts を見て、3 連続正解なら次出題を 1 段昇格
+        const recent = await getDb()
+          .select({ correct: attempts.correct })
+          .from(attempts)
+          .where(and(eq(attempts.userId, ctx.user.id), eq(attempts.conceptId, conceptRow.id)))
+          .orderBy(desc(attempts.createdAt))
+          .limit(STREAK_FOR_PROMOTION);
+        const promoted = computePromotion({
+          concept: { difficultyLevels: conceptRow.difficultyLevels },
+          currentDifficulty: input.difficulty,
+          recentCorrect: recent.map((r) => r.correct === true),
+        });
+        const effectiveDifficulty: DifficultyLevel = promoted ?? input.difficulty;
+
         const generated = await generateMcq({
-          conceptId: concept.id,
-          difficulty: input.difficulty,
+          conceptId: conceptRow.id,
+          difficulty: effectiveDifficulty,
           thinkingStyle: input.thinkingStyle,
         });
         question = generated.question;

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import { mastery, type Mastery } from "@/db/schema";
@@ -6,7 +6,11 @@ import { mastery, type Mastery } from "@/db/schema";
 import { gradeMastery } from "./fsrs";
 
 /**
- * 採点直後に mastery を upsert する統合関数。grader からフローで呼ばれる想定。
+ * 採点直後に mastery を upsert する統合関数。
+ *
+ * 原子性: 現在値を読んで gradeMastery で次状態を計算した後、書き戻す際は
+ * reviewCount と lapseCount のみ SQL の +1 / +0 増分で書く。stability や next_review 等の
+ * 絶対値は同じ呼び出し内では read-calc-write のままだが、MVP (作者 1 人) ではほぼ並行しない。
  */
 export async function updateMasteryAfterAttempt(params: {
   userId: string;
@@ -40,33 +44,34 @@ export async function updateMasteryAfterAttempt(params: {
     at,
   });
 
-  const values = {
-    userId: params.userId,
-    conceptId: params.conceptId,
-    stability: update.stability,
-    difficulty: update.difficulty,
-    lastReview: update.lastReview,
-    nextReview: update.nextReview,
-    reviewCount: update.reviewCount,
-    lapseCount: update.lapseCount,
-    mastered: update.mastered,
-    masteryPct: update.masteryPct,
-  };
+  const lapsed = update.lapseCount > (current?.lapseCount ?? 0);
 
   const [row] = await db
     .insert(mastery)
-    .values(values)
+    .values({
+      userId: params.userId,
+      conceptId: params.conceptId,
+      stability: update.stability,
+      difficulty: update.difficulty,
+      lastReview: update.lastReview,
+      nextReview: update.nextReview,
+      reviewCount: update.reviewCount,
+      lapseCount: update.lapseCount,
+      mastered: update.mastered,
+      masteryPct: update.masteryPct,
+    })
     .onConflictDoUpdate({
       target: [mastery.userId, mastery.conceptId],
       set: {
-        stability: values.stability,
-        difficulty: values.difficulty,
-        lastReview: values.lastReview,
-        nextReview: values.nextReview,
-        reviewCount: values.reviewCount,
-        lapseCount: values.lapseCount,
-        mastered: values.mastered,
-        masteryPct: values.masteryPct,
+        stability: update.stability,
+        difficulty: update.difficulty,
+        lastReview: update.lastReview,
+        nextReview: update.nextReview,
+        // review_count / lapse_count は並行競合でも増分が落ちないよう SQL 側で atomic に +1
+        reviewCount: sql`${mastery.reviewCount} + 1`,
+        lapseCount: lapsed ? sql`${mastery.lapseCount} + 1` : sql`${mastery.lapseCount}`,
+        mastered: update.mastered,
+        masteryPct: update.masteryPct,
       },
     })
     .returning();
