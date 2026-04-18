@@ -114,25 +114,19 @@ type DifficultySpec = {
 
 ### 4.4.2. パーサプロンプト
 
+真実の source は `prompts/parsing/custom-session.v1.md`。以下は抜粋 (doc として維持)。
+OpenAI の自動 prompt caching (ADR-0005) のため、**固定部 (Rules / Available lists) を先頭に、可変部 (User request) を末尾** に置く。
+
 ```
 <system>
-You are a request parser for a learning app.
+You are a request parser for a Japanese-language engineering learning app.
 Convert the user's natural-language request into a CustomSessionSpec JSON.
 </system>
 
 <user>
-## User request
-"{raw}"
-
-## Available domains
-[programming, dsa, os, network, db, security, distributed, design,
- devops, tools, low_level, ai_ml, frontend]
-
-## Available thinking styles
-[why, how, trade_off, edge_case, compare, apply]
-
-## Rules
+## Rules (固定)
 - If a field is not mentioned, omit it (don't invent). 既定値は UI 側で補完する。
+- Array-typed fields は omit か非空配列のどちらか。`[]` は禁止。
 - Map vague Japanese:
     「深く考える」 → thinkingStyles: ["why", "trade_off"]
     「基礎」       → difficulty.level: junior (thinkingStyles は omit)
@@ -141,10 +135,23 @@ Convert the user's natural-language request into a CustomSessionSpec JSON.
     「違いを比べて」 → thinkingStyles: ["compare"]
     「エッジケース」「罠」 → thinkingStyles: ["edge_case"]
 
-## Output
-Strict JSON matching CustomSessionSpec schema.
+## Available domains (固定)
+[programming, dsa, os, network, db, security, distributed, design,
+ devops, tools, low_level, ai_ml, frontend]
+
+## Available thinking styles (固定)
+[why, how, trade_off, edge_case, compare, apply]
+
+## User request (可変、末尾)
+"{raw}"
 </user>
 ```
+
+真実の源の一本化:
+
+- **Zod schema (`src/server/parser/schema.ts` の `CustomSessionSpecSchema`) が single source of truth**。
+- `CUSTOM_SESSION_JSON_SCHEMA` は OpenAI Structured Outputs 用の手動同期 ミラー (optional/required, minItems, minLength を揃える)。
+- prompt テンプレは LLM 向けの誘導で、enum / 制約の追加は Zod → JSON schema → prompt の順で更新する。
 
 ### 4.4.3. パース結果のユーザー確認
 

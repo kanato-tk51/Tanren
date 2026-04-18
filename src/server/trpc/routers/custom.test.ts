@@ -36,13 +36,15 @@ describe("custom.parse input validation (router 境界テスト)", () => {
     await expect(caller.custom.parse({ raw: "\n\t " })).rejects.toThrow();
   });
 
-  it("trim 後 1-2000 文字は accept (境界: 末尾空白 + 1999 文字)", async () => {
-    const trimmed1999 = "x".repeat(1999);
-    await expect(caller.custom.parse({ raw: `${trimmed1999} ` })).resolves.toHaveProperty("spec");
+  it("trim 後 2000 文字 + 末尾空白は accept (max が trim 前に効く回帰を捕捉)", async () => {
+    // max が transform(trim) 後に適用される順序保証のためのガード。
+    // Round 2 の .max(2000).transform(trim) 実装では length=2001 扱いで reject してしまう。
+    const padded = `${"x".repeat(2000)} `;
+    await expect(caller.custom.parse({ raw: padded })).resolves.toHaveProperty("spec");
   });
 
   it("trim 後 2001 文字は reject", async () => {
-    await expect(caller.custom.parse({ raw: "x".repeat(2001) })).rejects.toThrow();
+    await expect(caller.custom.parse({ raw: `${"x".repeat(2001)} ` })).rejects.toThrow();
   });
 
   it("未認証 (user: null) は UNAUTHORIZED", async () => {
