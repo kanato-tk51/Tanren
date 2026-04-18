@@ -155,4 +155,20 @@ describe("rankDailyCandidates", () => {
       ]
     `);
   });
+
+  it("rankDailyCandidates は difficultyLevels 非対応の concept も返す (filter は selectDailyCandidates 側で実施)", () => {
+    // rankDailyCandidates 自体は pure 関数で difficulty に関与しない。
+    // 実際の difficulty filter は selectDailyCandidates が DB 層で適用する設計なので、
+    // ここでは rank 関数の責務が広がっていないことをスナップで確認。
+    const result = rankDailyCandidates({
+      concepts: [
+        concept("beginner-only", [], ["beginner"]),
+        concept("senior-only", [], ["senior"]),
+      ],
+      masteries: [],
+      count: 2,
+      now,
+    });
+    expect(result.map((r) => r.concept.id).sort()).toEqual(["beginner-only", "senior-only"]);
+  });
 });

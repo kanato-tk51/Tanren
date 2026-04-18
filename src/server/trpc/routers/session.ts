@@ -280,9 +280,13 @@ export const sessionRouter = router({
           .where(and(eq(attempts.userId, ctx.user.id), eq(attempts.conceptId, conceptRow.id)))
           .orderBy(desc(attempts.createdAt))
           .limit(STREAK_FOR_PROMOTION);
-        // custom spec があれば絶対難易度を優先 (昇格は無視。ユーザー指定を尊重)
-        const requestedDifficulty: DifficultyLevel =
-          customSpec?.difficulty?.level ?? input.difficulty;
+        // custom spec があれば絶対難易度を優先 (昇格は無視。ユーザー指定を尊重)。
+        // customSpec.difficulty が未指定のときは concept がサポートする最初の難易度を
+        // fallback として使う (input.difficulty 既定 junior が concept 非対応で
+        // generateMcq が落ちるのを避ける)。
+        const requestedDifficulty: DifficultyLevel = customSpec
+          ? (customSpec.difficulty?.level ?? conceptRow.difficultyLevels[0] ?? input.difficulty)
+          : input.difficulty;
         const promoted = customSpec
           ? null
           : computePromotion({
