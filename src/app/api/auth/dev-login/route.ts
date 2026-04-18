@@ -14,7 +14,9 @@ import { isPasskeyEnabled } from "@/server/auth/webauthn";
  * 化けないよう、404 (エンドポイント自体を隠蔽) を返す。Preview / dev だけで利用可能。
  */
 export async function POST() {
-  if (process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production") {
+  // Vercel production でのみ遮断。`next start` / Preview / localhost の `next dev` では
+  // Passkey 無効時のフォールバックとして動かしたいので NODE_ENV は条件にしない
+  if (process.env.VERCEL_ENV === "production") {
     return new NextResponse("Not Found", { status: 404 });
   }
   if (isPasskeyEnabled()) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, Sparkles } from "lucide-react";
+import { LogOut, RefreshCw, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -15,9 +15,21 @@ import {
 } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc/react";
 
-export function HomeScreen() {
+export type InitialHomeUser = {
+  id: string;
+  email: string;
+  displayName: string | null;
+  dailyGoal: number;
+} | null;
+
+export function HomeScreen({ initialUser }: { initialUser: InitialHomeUser }) {
   const router = useRouter();
-  const me = trpc.auth.me.useQuery();
+  // SSR で解決した initialUser を初期値にしておき、以後はクライアント側で再検証
+  const me = trpc.auth.me.useQuery(undefined, {
+    initialData: initialUser
+      ? { authenticated: true, user: initialUser }
+      : { authenticated: false },
+  });
   const utils = trpc.useUtils();
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -32,8 +44,25 @@ export function HomeScreen() {
     }
   }
 
-  if (me.isLoading) {
-    return <HomeCard title="Tanren" body="読み込み中…" />;
+  // tRPC / DB 障害と「ログアウト済み」を UI 上でも区別する
+  if (me.isError) {
+    return (
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle>読み込みに失敗しました</CardTitle>
+          <CardDescription>tRPC / DB に到達できませんでした。</CardDescription>
+        </CardHeader>
+        <CardContent className="text-muted-foreground text-sm break-all">
+          {me.error.message}
+        </CardContent>
+        <CardFooter>
+          <Button variant="outline" onClick={() => me.refetch()}>
+            <RefreshCw className="mr-1 h-4 w-4" />
+            再試行
+          </Button>
+        </CardFooter>
+      </Card>
+    );
   }
 
   if (!me.data || !me.data.authenticated) {
@@ -78,17 +107,6 @@ export function HomeScreen() {
           {loggingOut ? "ログアウト中…" : "ログアウト"}
         </Button>
       </CardFooter>
-    </Card>
-  );
-}
-
-function HomeCard({ title, body }: { title: string; body: string }) {
-  return (
-    <Card className="w-full max-w-md">
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="text-muted-foreground text-sm">{body}</CardContent>
     </Card>
   );
 }
