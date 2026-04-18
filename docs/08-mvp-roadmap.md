@@ -22,7 +22,7 @@
 - 知識ツリー seed: **Tier 1 の 6 ドメイン × 17 concept ≒ 100 concept**
   - programming, dsa, network, db, tools, frontend を優先 (日常の Web 開発で毎日触る領域)
 - 問題タイプ: **mcq + short + written** の 3 つのみ
-- 思考スタイル: **memorization / why / comparison / trade_off / applied_scenario** の 5 つ
+- 思考スタイル: **why / how / trade_off / edge_case / compare / apply** の 6 種 (`src/db/schema/_constants.ts#THINKING_STYLES` が真実の源)
 - 問題生成 (OpenAI `gpt-5`)
 - 採点 (`gpt-5` / `gpt-5-mini` 混在)
 - 誤概念タグ付けの基本実装 (抽出は `gpt-5`)
@@ -44,7 +44,7 @@
 
 - Deep Dive モード
 - 問題タイプ: cloze / code_read / code_debug / design
-- 思考スタイル残り (debugging / edge_case / code_reading / historical / computation)
+- 思考スタイルの細粒度拡張 (memorization / debugging / code_reading / historical / computation などの追加、または 6 種の細分化) は Phase 5+ で再検討
 - コード実行サンドボックス (Judge0)
 - 設計問題の対話採点
 - Custom Session の Template 保存
@@ -230,14 +230,14 @@
 
 ## 8.6. マイルストーン
 
-| マイルストーン | 状態 |
-|---|---|
-| **M1: スケルトン動作** | Next.js + DB + 認証が繋がる |
-| **M2: 問題 1 問解ける** | 生成 → 解答 → 採点のループが動く |
-| **M3: 毎日使いたい** | FSRS + Daily Drill が完成、自分が継続して開く |
-| **M4: 学習が見える** | Insights で自分の成長が分かる |
-| **M5: スマホで完結** | PWA 化、通勤中に使える |
-| **M6: 習慣化** | 30 日以上継続して使っている |
+| マイルストーン          | 状態                                          |
+| ----------------------- | --------------------------------------------- |
+| **M1: スケルトン動作**  | Next.js + DB + 認証が繋がる                   |
+| **M2: 問題 1 問解ける** | 生成 → 解答 → 採点のループが動く              |
+| **M3: 毎日使いたい**    | FSRS + Daily Drill が完成、自分が継続して開く |
+| **M4: 学習が見える**    | Insights で自分の成長が分かる                 |
+| **M5: スマホで完結**    | PWA 化、通勤中に使える                        |
+| **M6: 習慣化**          | 30 日以上継続して使っている                   |
 
 期限は設けない。自分のペースで進める。
 
