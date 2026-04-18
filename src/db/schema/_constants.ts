@@ -34,8 +34,21 @@ export const DIFFICULTY_LEVELS = [
 ] as const;
 export type DifficultyLevel = (typeof DIFFICULTY_LEVELS)[number];
 
-export const SESSION_KINDS = ["daily", "deep", "custom", "review"] as const;
+export const SESSION_KINDS = ["daily", "deep", "custom", "review", "diagnostic"] as const;
 export type SessionKind = (typeof SESSION_KINDS)[number];
+
+/** Onboarding (issue #26) でユーザーが選べる興味分野 = Tier 1 6 ドメイン。
+ *  docs/02-learning-system.md §2.1.1 参照 (MVP は Tier 1 のみ)。
+ */
+export const TIER_1_DOMAIN_IDS = [
+  "programming",
+  "dsa",
+  "network",
+  "db",
+  "tools",
+  "frontend",
+] as const satisfies readonly DomainId[];
+export type Tier1DomainId = (typeof TIER_1_DOMAIN_IDS)[number];
 
 export const QUESTION_TYPES = ["mcq", "short", "written", "cloze", "code_read", "design"] as const;
 export type QuestionType = (typeof QUESTION_TYPES)[number];

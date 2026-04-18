@@ -17,6 +17,13 @@ import { generateMcq } from "@/server/generator/mcq";
 import { gradeAttempt } from "@/server/grader";
 import { CustomSessionSpecSchema, type CustomSessionSpec } from "@/server/parser/schema";
 import { selectDailyCandidates } from "@/server/scheduler/daily";
+import {
+  DIAGNOSTIC_DEFAULT_COUNT,
+  DIAGNOSTIC_MAX_COUNT,
+  DIAGNOSTIC_MIN_COUNT,
+  pickDiagnosticConcept,
+  selectDiagnosticConcepts,
+} from "@/server/scheduler/diagnostic";
 import { STREAK_FOR_PROMOTION, computePromotion } from "@/server/scheduler/promotion";
 import {
   REVIEW_DEFAULT_COUNT,
@@ -42,6 +49,10 @@ type SessionSpec = {
   customSpec?: CustomSessionSpec;
   /** Mistake Review (issue #23) の開始時に決まった concept のキュー。kind='review' のみ埋まる */
   reviewConceptIds?: string[];
+  /** Diagnostic (issue #26) の開始時に決まった concept のキュー。kind='diagnostic' のみ埋まる */
+  diagnosticConceptIds?: string[];
+  /** Diagnostic で使う固定難易度 (= user.selfLevel)。kind='diagnostic' のみ埋まる */
+  diagnosticDifficulty?: DifficultyLevel;
 };
 
 async function loadSession(sessionId: string, userId: string) {
@@ -231,14 +242,53 @@ export const sessionRouter = router({
         reviewTargetCount = clamped;
       }
 
+      // Diagnostic (issue #26): user.interestDomains × user.selfLevel から concept キューを作る。
+      // user 側の prefs が空なら PRECONDITION_FAILED で onboarding.savePreferences を促す。
+      // targetCount は DIAGNOSTIC_MIN..MAX に強制 clamp。candidates 0 件なら PRECONDITION_FAILED。
+      let diagnosticConceptIds: string[] | undefined;
+      let diagnosticTargetCount: number | undefined;
+      let diagnosticDifficulty: DifficultyLevel | undefined;
+      if (input.kind === "diagnostic") {
+        const interestDomains = ctx.user.interestDomains ?? [];
+        const selfLevel = ctx.user.selfLevel;
+        if (interestDomains.length === 0 || !selfLevel) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "興味分野と自己申告レベルが未設定です。先に onboarding.savePreferences を呼んでください",
+          });
+        }
+        const clamped = Math.min(
+          Math.max(input.targetCount ?? DIAGNOSTIC_DEFAULT_COUNT, DIAGNOSTIC_MIN_COUNT),
+          DIAGNOSTIC_MAX_COUNT,
+        );
+        const queue = await selectDiagnosticConcepts({
+          interestDomains,
+          selfLevel,
+          count: clamped,
+        });
+        if (queue.length === 0) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "選んだ興味分野・レベルに合致する concept がありません。seed を確認してください",
+          });
+        }
+        diagnosticConceptIds = queue;
+        diagnosticTargetCount = queue.length; // 実際に出題する数 (queue 不足時は count より少ない)
+        diagnosticDifficulty = selfLevel;
+      }
+
       // 問題数の決定順位:
       //   1. Custom Session の questionCount
       //   2. Review の場合は reviewTargetCount (10..15 clamp)
-      //   3. input.targetCount
-      //   4. 既定 5
+      //   3. Diagnostic の場合は diagnosticTargetCount (= queue.length)
+      //   4. input.targetCount
+      //   5. 既定 5
       const targetCount =
         input.customSpec?.questionCount ??
         reviewTargetCount ??
+        diagnosticTargetCount ??
         input.targetCount ??
         DEFAULT_DRILL_LENGTH;
       const spec: SessionSpec = {
@@ -246,6 +296,8 @@ export const sessionRouter = router({
         pendingQuestionId: null,
         ...(input.customSpec ? { customSpec: input.customSpec } : {}),
         ...(reviewConceptIds ? { reviewConceptIds } : {}),
+        ...(diagnosticConceptIds ? { diagnosticConceptIds } : {}),
+        ...(diagnosticDifficulty ? { diagnosticDifficulty } : {}),
       };
       const [session] = await db
         .insert(sessions)
@@ -319,11 +371,17 @@ export const sessionRouter = router({
           session.kind === "review"
             ? pickReviewConcept(spec.reviewConceptIds, session.questionCount)
             : null;
+        const diagnosticConceptId =
+          session.kind === "diagnostic"
+            ? pickDiagnosticConcept(spec.diagnosticConceptIds ?? [], session.questionCount)
+            : null;
         const effectiveConceptId = reviewConceptId
           ? reviewConceptId
-          : customSpec
-            ? (customConceptId ?? null)
-            : (input.conceptId ?? null);
+          : diagnosticConceptId
+            ? diagnosticConceptId
+            : customSpec
+              ? (customConceptId ?? null)
+              : (input.conceptId ?? null);
         // Custom で concept 未指定 + difficulty 指定時は、pickConceptForDrill で
         // その難易度を許容する concept のみを候補にする (start 時の整合は
         // concept 未指定ケースで検証できないので、ここでも補完的に filter)。
@@ -338,14 +396,22 @@ export const sessionRouter = router({
           .where(and(eq(attempts.userId, ctx.user.id), eq(attempts.conceptId, conceptRow.id)))
           .orderBy(desc(attempts.createdAt))
           .limit(STREAK_FOR_PROMOTION);
-        // custom spec があれば絶対難易度を優先 (昇格は無視。ユーザー指定を尊重)。
-        // customSpec.difficulty が未指定のときは concept がサポートする最初の難易度を
-        // fallback として使う (input.difficulty 既定 junior が concept 非対応で
-        // generateMcq が落ちるのを避ける)。
-        const requestedDifficulty: DifficultyLevel = customSpec
-          ? (customSpec.difficulty?.level ?? conceptRow.difficultyLevels[0] ?? input.difficulty)
+        // 難易度の決定順位:
+        //   1. Custom spec の絶対難易度 (ユーザー指定尊重、昇格しない)
+        //   2. Diagnostic の固定難易度 (= user.selfLevel、昇格しない)
+        //   3. それ以外: input.difficulty を起点に 3 連続正解で 1 段昇格
+        // concept がその難易度をサポートしない場合は concept.difficultyLevels[0] にフォールバック。
+        const fixedDifficulty: DifficultyLevel | null = customSpec
+          ? (customSpec.difficulty?.level ?? null)
+          : session.kind === "diagnostic"
+            ? (spec.diagnosticDifficulty ?? null)
+            : null;
+        const requestedDifficulty: DifficultyLevel = fixedDifficulty
+          ? conceptRow.difficultyLevels.includes(fixedDifficulty)
+            ? fixedDifficulty
+            : (conceptRow.difficultyLevels[0] ?? input.difficulty)
           : input.difficulty;
-        const promoted = customSpec
+        const promoted = fixedDifficulty
           ? null
           : computePromotion({
               concept: { difficultyLevels: conceptRow.difficultyLevels },

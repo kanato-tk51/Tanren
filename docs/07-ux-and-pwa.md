@@ -475,17 +475,28 @@ Streak at risk は **やらない** (Streak 自体を出さない方針)。
   ☑ programming  ☑ network  ☐ security ...
     ↓
 [レベル自己申告]
-  beginner / junior / mid / senior / staff
+  beginner / junior / mid / senior
     ↓
-[初期診断テスト (3-5分, 20問)]
-  各分野から数問 → 初期 mastery 設定
+[初期診断テスト (5-20問、seed の concept 数で clamp)]
+  各分野から round-robin → 初期 mastery 設定
     ↓
 [診断結果表示]
-  「programming と network が強く、db が伸びしろです」
+  正答率の簡易サマリ
     ↓
 [最初の Daily Drill へ誘導]
   「では、今日の 10 問を始めましょう」
 ```
+
+### MVP 実装範囲 (issue #26)
+
+- `users.onboarding_completed_at` が NULL なら `/` から `/onboarding` に強制リダイレクト (`src/app/page.tsx`)。
+- `users.interest_domains` (Tier 1 6 ドメイン subset) と `users.self_level` を `onboarding.savePreferences` で保存。
+- 診断 session は `kind='diagnostic'` (`SESSION_KINDS` に追加)。`spec.diagnosticConceptIds` に
+  `selectDiagnosticConcepts` で生成した concept キューを保存し、`session.next` で round-robin 消費する。
+- 出題難易度は `user.self_level` 固定 (custom と同様、3 連続正解での昇格は行わない)。
+- 診断完了後 `onboarding.complete` で `onboarding_completed_at` を NOW() に更新。
+- 自己申告レベルは `staff` / `principal` を MVP 対象外 (seed の concept レンジが mid 中心で
+  当たりが 0 件になり診断テストが成立しないため、MVP では `beginner..senior` の 4 段階)。
 
 個人用途なので「新規登録」UI は**作らない**。初期 user 行は `pnpm run auth:bootstrap` で 1 回だけ作成し、
 以降は Passkey 登録 → ログインの繰り返し。

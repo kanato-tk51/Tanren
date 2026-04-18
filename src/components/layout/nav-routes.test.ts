@@ -34,6 +34,7 @@ describe("isNavHidden", () => {
     expect(isNavHidden("/custom")).toBe(true);
     expect(isNavHidden("/review")).toBe(true);
     expect(isNavHidden("/login")).toBe(true);
+    expect(isNavHidden("/onboarding")).toBe(true);
   });
 
   it("Home / Insights では表示", () => {
