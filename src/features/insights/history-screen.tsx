@@ -1,8 +1,10 @@
 "use client";
 
 import type { inferRouterOutputs } from "@trpc/server";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import Link from "next/link";
 import { parseAsString, parseAsStringLiteral, useQueryState } from "nuqs";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -130,6 +132,7 @@ export function HistoryScreen() {
 }
 
 function HistoryRow({ item }: { item: HistoryItem }) {
+  const [expanded, setExpanded] = useState(false);
   const correctLabel =
     item.correct === true ? "○ 正解" : item.correct === false ? "× 不正解" : "判定なし";
   const correctClass =
@@ -139,8 +142,29 @@ function HistoryRow({ item }: { item: HistoryItem }) {
         ? "text-destructive"
         : "text-muted-foreground";
   const created = new Date(item.createdAt);
-  // 「類題を出す」は concept を絞った Custom Session へ
   const customHref = `/custom?conceptId=${encodeURIComponent(item.conceptId)}`;
+
+  async function copy() {
+    const text = [
+      `# 問題`,
+      item.questionPrompt,
+      "",
+      `# 模範解答`,
+      item.questionAnswer,
+      "",
+      `# あなたの回答`,
+      item.userAnswer ?? "(未回答)",
+      "",
+      `# 採点: ${correctLabel}${item.score !== null ? ` / ${item.score.toFixed(2)}` : ""}`,
+      item.feedback ?? "",
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // コピー失敗は無通知で
+    }
+  }
+
   return (
     <li className="border-border rounded-md border p-3 text-sm">
       <div className="flex items-baseline justify-between gap-2">
@@ -154,21 +178,50 @@ function HistoryRow({ item }: { item: HistoryItem }) {
         {item.domainId} / {item.subdomainId} ・ {item.conceptName} ・ {item.questionType} ・{" "}
         {item.difficulty}
       </div>
-      {item.userAnswer && (
-        <div className="bg-muted/40 mt-2 rounded p-2 text-xs">
-          <span className="text-muted-foreground">あなたの回答: </span>
-          <span>{item.userAnswer}</span>
+      {expanded && (
+        <div className="mt-2 space-y-2">
+          {item.userAnswer && (
+            <div className="bg-muted/40 rounded p-2 text-xs">
+              <div className="text-muted-foreground">あなたの回答:</div>
+              <div className="whitespace-pre-wrap">{item.userAnswer}</div>
+            </div>
+          )}
+          <div className="bg-muted/40 rounded p-2 text-xs">
+            <div className="text-muted-foreground">模範解答:</div>
+            <div className="whitespace-pre-wrap">{item.questionAnswer}</div>
+          </div>
+          {item.feedback && (
+            <div className="text-xs">
+              <span className="text-muted-foreground">フィードバック: </span>
+              <span>{item.feedback}</span>
+            </div>
+          )}
+          {item.score !== null && (
+            <div className="text-muted-foreground text-xs">
+              スコア: {item.score.toFixed(2)} / 1.00
+            </div>
+          )}
         </div>
       )}
-      {item.feedback && (
-        <div className="mt-1 text-xs">
-          <span className="text-muted-foreground">フィードバック: </span>
-          <span>{item.feedback}</span>
-        </div>
-      )}
-      <div className="mt-2">
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          {expanded ? (
+            <ChevronUp className="mr-1 h-3.5 w-3.5" />
+          ) : (
+            <ChevronDown className="mr-1 h-3.5 w-3.5" />
+          )}
+          {expanded ? "閉じる" : "詳細"}
+        </Button>
         <Button asChild variant="outline" size="sm">
           <Link href={customHref}>🎯 類題を出す</Link>
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => void copy()}>
+          📋 コピー
         </Button>
       </div>
     </li>

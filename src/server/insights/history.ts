@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, lt, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, or, type SQL } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import { attempts, concepts, questions } from "@/db/schema";
@@ -90,11 +90,23 @@ export async function fetchHistory(params: {
     preds.push(inArray(attempts.conceptId, ids));
   }
 
-  // cursor (createdAt)
+  // cursor: "{ISO}|{attemptId}" の複合キーで同秒 tie-break まで安定。
+  // 後方互換のため "{ISO}" 単独入力は従来通り (createdAt 未満) として扱う。
   if (filter.cursor) {
-    const cursorDate = new Date(filter.cursor);
-    if (!Number.isNaN(cursorDate.getTime())) {
-      preds.push(lt(attempts.createdAt, cursorDate));
+    const [cursorIso, cursorId] = filter.cursor.split("|");
+    const cursorDate = cursorIso ? new Date(cursorIso) : null;
+    if (cursorDate && !Number.isNaN(cursorDate.getTime())) {
+      if (cursorId) {
+        // createdAt < c OR (createdAt = c AND id < cursorId)
+        preds.push(
+          or(
+            lt(attempts.createdAt, cursorDate),
+            and(eq(attempts.createdAt, cursorDate), lt(attempts.id, cursorId)) as SQL,
+          ) as SQL,
+        );
+      } else {
+        preds.push(lt(attempts.createdAt, cursorDate));
+      }
     }
   }
 
@@ -120,12 +132,15 @@ export async function fetchHistory(params: {
     .innerJoin(questions, eq(attempts.questionId, questions.id))
     .innerJoin(concepts, eq(attempts.conceptId, concepts.id))
     .where(and(...preds))
-    .orderBy(desc(attempts.createdAt))
+    // createdAt 降順 + attemptId 降順の複合 sort で同秒 tie-break まで安定化。
+    .orderBy(desc(attempts.createdAt), desc(attempts.id))
     .limit(limit + 1);
 
   const hasMore = rows.length > limit;
   const items = rows.slice(0, limit);
-  const nextCursor = hasMore ? items[items.length - 1]!.createdAt.toISOString() : null;
+  // nextCursor は複合キー形式 "{ISO}|{attemptId}" で返し、次ページで正確に続きが取れるように。
+  const last = items[items.length - 1];
+  const nextCursor = hasMore && last ? `${last.createdAt.toISOString()}|${last.attemptId}` : null;
 
   return { items, nextCursor };
 }

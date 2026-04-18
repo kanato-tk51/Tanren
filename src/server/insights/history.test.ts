@@ -61,7 +61,7 @@ describe("fetchHistory", () => {
     expect(out.nextCursor).toBeNull();
   });
 
-  it("limit+1 件返ったら nextCursor を設定", async () => {
+  it("limit+1 件返ったら nextCursor を複合キー形式で設定 (createdAt ISO | attemptId)", async () => {
     const rows = Array.from({ length: 21 }).map((_, i) =>
       mkRow({
         attemptId: `a-${i}`,
@@ -71,7 +71,24 @@ describe("fetchHistory", () => {
     queue.push(() => rows);
     const out = await fetchHistory({ userId: "u-1", filter: { limit: 20 } });
     expect(out.items).toHaveLength(20);
-    expect(out.nextCursor).toBe(out.items[out.items.length - 1]!.createdAt.toISOString());
+    const last = out.items[out.items.length - 1]!;
+    expect(out.nextCursor).toBe(`${last.createdAt.toISOString()}|${last.attemptId}`);
+  });
+
+  it("cursor 複合キー形式を受け付け、ISO 単独の旧形式との後方互換も保つ", async () => {
+    queue.push(() => [mkRow()]);
+    const out1 = await fetchHistory({
+      userId: "u-1",
+      filter: { cursor: "2026-04-18T00:00:00.000Z|a-99" },
+    });
+    expect(out1.items).toHaveLength(1);
+
+    queue.push(() => [mkRow()]);
+    const out2 = await fetchHistory({
+      userId: "u-1",
+      filter: { cursor: "2026-04-18T00:00:00.000Z" },
+    });
+    expect(out2.items).toHaveLength(1);
   });
 
   it("limit に満たなければ nextCursor=null", async () => {
