@@ -34,8 +34,11 @@ export type SearchResult = {
  *   2. 日本語 / CJK は to_tsvector('simple') で空 tsv になるため、pg_trgm GIN 索引で
  *      加速された ILIKE '%q%' を併用 (idx_attempts_trgm / idx_attempts_feedback_trgm /
  *      idx_questions_prompt_trgm / idx_misconceptions_description_trgm)。
- *   3. 両経路を `OR` で結合 (重複 hit は attemptId で de-dup していないが、同じ行の
- *      hitSource は Postgres のプラン次第で変わらないので現状は問題にならない)。
+ *   3. 両経路を `OR` で結合して単一 SQL で実行 (同一 attempt 行は WHERE 単位で 1 回しか
+ *      返らない)。ただし tsvector 経路のみでヒットした行は後段 JS の containsIgnoreCase が
+ *      3 カラムすべて false となり `hitSource='question'` にフォールバックする
+ *      (受け入れ挙動。UI 側で明示的にハイライトするべきだが、型としては既存の
+ *      `"question" | "userAnswer" | "feedback" | "misconception"` に収まる)。
  *
  * SQL injection 対策: drizzle の ilike() / eq() / sql`` placeholder は prepared statement
  * で bind されるため、外部文字列 (q) はプレースホルダ経由で安全。
@@ -56,7 +59,11 @@ export async function fetchSearch(params: {
   // 英数字が含まれていれば tsvector 経路を有効化。日本語のみのクエリは plainto_tsquery が
   // 空 tsquery を返して no-op になるだけなので、副作用はないが念のため事前判定して
   // 無駄な OR 条件を query plan から外す。
-  const hasAsciiToken = /[A-Za-z0-9]/.test(q);
+  //
+  // Codex Round 1 指摘 #2: NFKC 正規化してから判定し、全角英数字 (ＡＢＣ / ０１２３) や
+  // ラテン拡張 (café / naïve) も tsvector 経路の恩恵を受けられるようにする。
+  // Unicode プロパティで Latin スクリプト or 10 進数字を拾う。
+  const hasAsciiToken = /[\p{Script=Latin}\p{Nd}]/u.test(q.normalize("NFKC"));
 
   // attempts と misconceptions の両方から最大 limit 件ずつ引き、マージ後にもう一度 limit で
   // トリムする。片側 DB クエリに半分ずつ割り付けると「一方がほぼ空のときにもう一方を
