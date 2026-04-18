@@ -1,42 +1,52 @@
 /* Tanren PWA Service Worker (issue #24)
  *
- * docs/07 §7.5 参照。MVP は以下のみ実装:
- *   - App Shell (/, /drill, /custom, /insights など) を Cache-First で配信
- *   - API (/api/*) は Network-First、オフライン時に最後のキャッシュを返す (ベストエフォート)
- *   - Web Push / Background Sync は未実装 (Phase 5+)
+ * 設計方針:
+ *   1. credentialed / 個人データが絡むレスポンスはキャッシュしない。
+ *      → tRPC (/api/trpc/*) および HTML (Next.js App Router の SSR) はキャッシュ対象外。
+ *   2. キャッシュするのは「どのユーザーでも同じ」static asset のみ:
+ *      /manifest.webmanifest, /icon-*.png, /_next/static/* (Next のハッシュ付き静的資産)。
+ *   3. APP_SHELL の precache は /manifest.webmanifest と /icon.png のみ。保護ルート
+ *      (/drill, /custom, /insights, /review) は install 時にアクセスすると未ログイン端末で
+ *      /login にリダイレクトされ、それがそのまま「保護ルートの shell」として precache
+ *      されてしまうため含めない (Codex Round 1 指摘 A1)。
+ *   4. cache.addAll を使わず個別 put + allSettled で install を壊れにくくする。
+ *   5. Web Push / Background Sync は Phase 5+。
  *
- * キャッシュ命名は version をインクリメントして古い cache を即座に削除できるように。
- * 静的アセット (画像/フォント) の網羅性は意図的に最小にして、誤キャッシュで
- * スタイル崩れが起きたときに version up 1 回で直せる設計。
+ * version up: CACHE_VERSION を bump すると activate 時に旧 cache が一括削除される。
  */
 
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const STATIC_CACHE = `tanren-static-${CACHE_VERSION}`;
-const RUNTIME_CACHE = `tanren-runtime-${CACHE_VERSION}`;
 
-const APP_SHELL = ["/", "/drill", "/custom", "/insights", "/review", "/manifest.webmanifest"];
+/** install 時に precache する完全 static なもの (個人データなし、全ユーザー共通) */
+const PRECACHE_URLS = ["/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches
-      .open(STATIC_CACHE)
-      .then((cache) => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting()),
+    (async () => {
+      const cache = await caches.open(STATIC_CACHE);
+      // cache.addAll は all-or-nothing で 1 つ失敗すると install 全体が落ちるため、
+      // allSettled + put でベストエフォートに。
+      await Promise.allSettled(
+        PRECACHE_URLS.map(async (url) => {
+          const res = await fetch(url, { credentials: "omit" });
+          if (res.ok) await cache.put(url, res);
+        }),
+      );
+      await self.skipWaiting();
+    })(),
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((names) =>
-        Promise.all(
-          names
-            .filter((n) => n !== STATIC_CACHE && n !== RUNTIME_CACHE)
-            .map((n) => caches.delete(n)),
-        ),
-      )
-      .then(() => self.clients.claim()),
+    (async () => {
+      const names = await caches.keys();
+      await Promise.all(
+        names.filter((n) => n !== STATIC_CACHE).map((n) => caches.delete(n)),
+      );
+      await self.clients.claim();
+    })(),
   );
 });
 
@@ -47,40 +57,31 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // API: Network-First (オフライン時は最後の GET キャッシュ)
-  if (url.pathname.startsWith("/api/")) {
-    event.respondWith(networkFirst(request));
-    return;
+  // 認証・HTML・API は絶対にキャッシュしない (credentialed レスポンスの残留防止)。
+  // /api/*, /login, その他 HTML navigation は SW をバイパスしてブラウザのデフォルトに任せる。
+  if (url.pathname.startsWith("/api/")) return;
+  if (url.pathname === "/login") return;
+  if (request.mode === "navigate") return; // ドキュメント遷移は常にネットワーク
+
+  // 完全 static なもののみ cache-first (Next のハッシュ付き資産 + 自前アセット):
+  //   /_next/static/* (Content-Hash 付きなので stale にならない)
+  //   /icon-*.png, /manifest.webmanifest, /favicon.ico
+  if (
+    url.pathname.startsWith("/_next/static/") ||
+    url.pathname.startsWith("/icon-") ||
+    url.pathname === "/manifest.webmanifest" ||
+    url.pathname === "/favicon.ico"
+  ) {
+    event.respondWith(cacheFirst(request));
   }
-
-  // 認証関連はキャッシュしない
-  if (url.pathname.startsWith("/login")) return;
-
-  // App Shell + その他 GET: Stale-While-Revalidate
-  event.respondWith(staleWhileRevalidate(request));
+  // それ以外の GET は SW 介入なし (ブラウザの通常挙動)
 });
 
-async function networkFirst(request) {
-  const cache = await caches.open(RUNTIME_CACHE);
-  try {
-    const response = await fetch(request);
-    if (response.ok) cache.put(request, response.clone());
-    return response;
-  } catch (err) {
-    const cached = await cache.match(request);
-    if (cached) return cached;
-    throw err;
-  }
-}
-
-async function staleWhileRevalidate(request) {
+async function cacheFirst(request) {
   const cache = await caches.open(STATIC_CACHE);
   const cached = await cache.match(request);
-  const fetchPromise = fetch(request)
-    .then((response) => {
-      if (response.ok) cache.put(request, response.clone());
-      return response;
-    })
-    .catch(() => cached);
-  return cached || fetchPromise;
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response.ok) cache.put(request, response.clone());
+  return response;
 }

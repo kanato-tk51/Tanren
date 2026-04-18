@@ -425,7 +425,7 @@ function priority(concept: Concept, mastery: Mastery): number {
 | State             | **TanStack Query + Zustand**                                   | サーバー状態 + UI 状態                             |
 | URL 状態          | **nuqs**                                                       | フィルタなどの URL 同期                            |
 | i18n              | 日本語のみ                                                     | スコープ絞る                                       |
-| PWA               | **Serwist**                                                    | Service Worker 統合                                |
+| PWA               | **自作 Service Worker** (`public/sw.js`)                       | Serwist / next-pwa は未導入 (依存削減のため)       |
 | Deploy            | **Vercel Hobby**                                               | Next.js と Neon の連携が公式                       |
 | 監視              | **Sentry (Free tier)**                                         | エラー追跡                                         |
 | テスト            | **Vitest**                                                     | unit/integration                                   |
@@ -544,7 +544,9 @@ Tanren/
 │   ├── grading/
 │   └── parsing/
 ├── public/                        # 静的ファイル
-├── service-worker/                # PWA Service Worker
+│   ├── manifest.webmanifest       # PWA manifest (issue #24)
+│   ├── sw.js                      # PWA Service Worker (自作、Serwist 非採用)
+│   └── icon-*.png                 # PWA アイコン
 ├── drizzle/                       # マイグレーション
 ├── package.json
 ├── next.config.ts
