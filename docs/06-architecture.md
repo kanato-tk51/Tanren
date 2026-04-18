@@ -546,6 +546,7 @@ Tanren/
 │   │   └── layout/                # BottomNav / AppShell (issue #25)
 │   └── lib/                       # 共通ユーティリティ
 │       ├── openai/                # OpenAI client / model 定数 (CLAUDE.md §4.6)
+│       ├── sentry/                # Sentry beforeSend (PII フィルタ、issue #27)
 │       ├── share/                 # copy-for-llm 整形
 │       └── trpc/                  # tRPC client
 ├── prompts/                       # LLM プロンプトテンプレ
@@ -559,6 +560,10 @@ Tanren/
 │   ├── icon-512.png               # PWA アイコン (standard + maskable)
 │   └── apple-icon.png             # iOS apple-touch-icon (180x180)
 ├── drizzle/                       # マイグレーション
+├── instrumentation.ts             # Next.js 15 instrumentation (Sentry register、issue #27)
+├── sentry.client.config.ts        # Sentry browser init (issue #27)
+├── sentry.server.config.ts        # Sentry Node.js runtime init (issue #27)
+├── sentry.edge.config.ts          # Sentry edge runtime init (issue #27)
 ├── package.json
 ├── next.config.ts
 ├── tailwind.config.ts
@@ -640,9 +645,26 @@ Tanren/
 
 | レイヤ       | ツール                                                                     |
 | ------------ | -------------------------------------------------------------------------- |
-| エラー       | Sentry (Free tier)                                                         |
+| エラー       | Sentry (Free tier、issue #27)                                              |
 | ログ         | Vercel Logs (直近 1h)、必要なときだけ tail                                 |
 | LLM トレース | 独自ログ (prompt_version, 生成/採点結果を `attempts` / `questions` に記録) |
+
+**Sentry セットアップ詳細 (issue #27)**
+
+- パッケージ: `@sentry/nextjs` (Next.js 15 対応)
+- init ファイル: `sentry.{client,server,edge}.config.ts` を repo root に配置
+- instrumentation: `instrumentation.ts` で server / edge を runtime 別に register、
+  `captureRequestError` を `onRequestError` 名で re-export して Server Components / Route Handlers
+  の未捕捉エラーを Sentry へ送信
+- 共通フィルタ: `src/lib/sentry/before-send.ts` で `tanrenBeforeSend` を実装
+  (cookie / authorization header / cookies / query_string / data / user.email・username・ip /
+  contexts.device・os を削除して PII を Sentry へ送らない、CLAUDE.md §3 と docs §6.6.6 整合)
+- `SENTRY_DSN` 未設定時は `Sentry.init` 自体を skip し、`beforeSend` も `null` を返して完全 no-op
+  (ローカル / preview の事故防止)
+- `withSentryConfig` で build 時に sourcemap を Sentry にアップロード
+  (`SENTRY_AUTH_TOKEN` + `SENTRY_ORG` + `SENTRY_PROJECT` 必須、未設定なら upload を skip するだけで
+  build は壊れない)
+- `tracesSampleRate=0.1`、`replaysSessionSampleRate=0`、`replaysOnErrorSampleRate=0` で Free tier 枠を尊重
 
 ### 6.9.2. Phase 5+ で追加検討
 
