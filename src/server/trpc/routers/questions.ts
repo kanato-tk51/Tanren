@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { DIFFICULTY_LEVELS, THINKING_STYLES } from "@/db/schema";
 import { generateMcq } from "@/server/generator/mcq";
+import { generateShortWritten } from "@/server/generator/short-written";
 
 import { protectedProcedure, router } from "../init";
 
@@ -10,17 +11,33 @@ export const questionsRouter = router({
     .input(
       z.object({
         conceptId: z.string().min(1),
-        /** MVP は mcq のみ (issue #9)。他タイプは issue #14 以降 */
-        type: z.literal("mcq"),
+        type: z.enum(["mcq", "short", "written"]),
         difficulty: z.enum(DIFFICULTY_LEVELS),
         thinkingStyle: z.enum(THINKING_STYLES).nullable(),
       }),
     )
     .mutation(async ({ input }) => {
-      // forceFresh は公開 API に露出させず、サーバー側のフラグ (NODE_ENV=development かつ
-      // テストで必要な場合) でのみ許可する。Passkey 認証済みでも OpenAI コスト削減経路を塞ぐ。
-      const result = await generateMcq({
+      if (input.type === "mcq") {
+        const result = await generateMcq({
+          conceptId: input.conceptId,
+          difficulty: input.difficulty,
+          thinkingStyle: input.thinkingStyle,
+        });
+        return {
+          source: result.source,
+          question: {
+            id: result.question.id,
+            type: "mcq" as const,
+            prompt: result.question.prompt,
+            distractors: result.question.distractors,
+            hint: result.question.hint,
+            tags: result.question.tags,
+          },
+        };
+      }
+      const result = await generateShortWritten({
         conceptId: input.conceptId,
+        type: input.type,
         difficulty: input.difficulty,
         thinkingStyle: input.thinkingStyle,
       });
@@ -28,11 +45,11 @@ export const questionsRouter = router({
         source: result.source,
         question: {
           id: result.question.id,
+          type: input.type,
           prompt: result.question.prompt,
-          distractors: result.question.distractors,
-          // answer / explanation は UI 側でユーザー回答後に出す。ここでは返さない
           hint: result.question.hint,
           tags: result.question.tags,
+          // short / written は textarea 回答。rubric は採点前に UI に出さない (バイアス防止)
         },
       };
     }),
