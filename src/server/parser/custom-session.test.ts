@@ -32,24 +32,21 @@ describe("buildCustomSessionPrompt", () => {
 });
 
 describe("CustomSessionSpecSchema", () => {
-  it("最小形 (questionCount + difficulty + thinkingStyles)", () => {
+  it("最小形 (questionCount + difficulty のみ。他は omit)", () => {
     const spec = CustomSessionSpecSchema.parse({
       questionCount: 5,
-      thinkingStyles: [],
       difficulty: { kind: "absolute", level: "junior" },
-      updateMastery: true,
     });
     expect(spec.questionCount).toBe(5);
-    expect(spec.updateMastery).toBe(true);
+    expect(spec.thinkingStyles).toBeUndefined();
+    expect(spec.updateMastery).toBeUndefined();
   });
 
   it("questionCount 0 は reject", () => {
     expect(() =>
       CustomSessionSpecSchema.parse({
         questionCount: 0,
-        thinkingStyles: [],
         difficulty: { kind: "absolute", level: "junior" },
-        updateMastery: true,
       }),
     ).toThrow();
   });
@@ -57,10 +54,16 @@ describe("CustomSessionSpecSchema", () => {
   it("未知の thinkingStyle は reject", () => {
     expect(() =>
       CustomSessionSpecSchema.parse({
-        questionCount: 5,
         thinkingStyles: ["unknown_style"],
-        difficulty: { kind: "absolute", level: "junior" },
-        updateMastery: true,
+      }),
+    ).toThrow();
+  });
+
+  it("空配列 (thinkingStyles: []) は reject (omit が正)", () => {
+    expect(() =>
+      CustomSessionSpecSchema.parse({
+        questionCount: 5,
+        thinkingStyles: [],
       }),
     ).toThrow();
   });
@@ -77,7 +80,6 @@ describe("parseCustomSession (LLM DI)", () => {
       questionCount: 5,
       thinkingStyles: ["trade_off", "edge_case"],
       difficulty: { kind: "absolute", level: "senior" },
-      updateMastery: true,
     });
     const { spec } = await parseCustomSession("面接レベル 5 問", caller);
     expect(spec.difficulty?.level).toBe("senior");
@@ -88,31 +90,25 @@ describe("parseCustomSession (LLM DI)", () => {
     const caller = vi.fn().mockResolvedValue({
       questionCount: 5,
       thinkingStyles: ["imagination"],
-      difficulty: { kind: "absolute", level: "junior" },
-      updateMastery: true,
     });
     await expect(parseCustomSession("X", caller)).rejects.toThrow();
   });
 
-  it("基礎 → junior + thinkingStyles 空", async () => {
+  it("基礎 → junior + thinkingStyles omit", async () => {
     const caller = vi.fn().mockResolvedValue({
       questionCount: 3,
-      thinkingStyles: [],
       difficulty: { kind: "absolute", level: "junior" },
-      updateMastery: true,
     });
     const { spec } = await parseCustomSession("Python の基礎を 3 問", caller);
     expect(spec.difficulty?.level).toBe("junior");
-    expect(spec.thinkingStyles).toEqual([]);
+    expect(spec.thinkingStyles).toBeUndefined();
     expect(spec.questionCount).toBe(3);
   });
 
   it("constraints.mustInclude が保持される", async () => {
     const caller = vi.fn().mockResolvedValue({
       questionCount: 2,
-      thinkingStyles: [],
       difficulty: { kind: "absolute", level: "mid" },
-      updateMastery: true,
       constraints: { mustInclude: ["TLS 1.3"] },
     });
     const { spec } = await parseCustomSession("TLS 1.3 を必ず含めて", caller);
@@ -122,9 +118,7 @@ describe("parseCustomSession (LLM DI)", () => {
   it("ドメイン指定が伝わる (network)", async () => {
     const caller = vi.fn().mockResolvedValue({
       questionCount: 5,
-      thinkingStyles: [],
       difficulty: { kind: "absolute", level: "junior" },
-      updateMastery: true,
       domains: ["network"],
     });
     const { spec } = await parseCustomSession("network 5 問", caller);
@@ -134,9 +128,6 @@ describe("parseCustomSession (LLM DI)", () => {
   it("Zod strict: 未知フィールドは reject (JSON schema additionalProperties:false と一致)", async () => {
     const caller = vi.fn().mockResolvedValue({
       questionCount: 5,
-      thinkingStyles: [],
-      difficulty: { kind: "absolute", level: "junior" },
-      updateMastery: true,
       unknownField: "x",
     });
     await expect(parseCustomSession("x", caller)).rejects.toThrow();
@@ -163,7 +154,7 @@ describe("parseCustomSession snapshots (受け入れ基準: 5 本)", () => {
       },
     },
     {
-      name: "基礎 (junior + thinkingStyles 空の省略)",
+      name: "基礎 (junior + thinkingStyles omit)",
       llmJson: {
         questionCount: 3,
         difficulty: { kind: "absolute", level: "junior" },
@@ -184,6 +175,14 @@ describe("parseCustomSession snapshots (受け入れ基準: 5 本)", () => {
         domains: ["network"],
         thinkingStyles: ["apply"],
         difficulty: { kind: "absolute", level: "mid" },
+      },
+    },
+    {
+      name: "staff レベル (MVP 6 段階)",
+      llmJson: {
+        questionCount: 3,
+        difficulty: { kind: "absolute", level: "staff" },
+        thinkingStyles: ["trade_off"],
       },
     },
     {

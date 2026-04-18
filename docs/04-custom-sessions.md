@@ -304,7 +304,7 @@ Custom で「存在しない concept (例: `network.tcp.bbrv2`)」が出たら:
 - `gpt-5-mini` によるパース
 - **パース結果を読み取り専用カードで表示** (違和感あれば自然言語で再入力)。編集可能フォームは MVP では作らない
 - 既存生成プロンプトへの `thinking_style` 注入
-- 絶対難易度のみサポート (`beginner / junior / mid / senior`)
+- 絶対難易度は 6 段階全て受け入れる (`beginner / junior / mid / senior / staff / principal`)。相対 / 数値 / 面接 kind は Phase 5+。
 
 ### 4.10.2. Phase 2 で追加
 

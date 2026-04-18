@@ -26,14 +26,19 @@ export const DifficultyAbsoluteSchema = z
 
 export type DifficultySpec = z.infer<typeof DifficultyAbsoluteSchema>;
 
+/**
+ * 未指定フィールドは omit、空配列は禁止 (受け入れ基準 4 / docs §4.4.2)。
+ * `min(1)` を optional 配列に付けることで「[] は不可、undefined は可」を表現する。
+ * LLM 側には JSON schema の `minItems: 1` + prompt で omit を誘導する。
+ */
 export const CustomSessionSpecSchema = z
   .object({
-    domains: z.array(z.enum(DOMAIN_IDS)).optional(),
-    subdomains: z.array(z.string().min(1)).optional(),
-    concepts: z.array(z.string().min(1)).optional(),
-    excludeConcepts: z.array(z.string().min(1)).optional(),
-    thinkingStyles: z.array(z.enum(THINKING_STYLES)).optional(),
-    questionTypes: z.array(z.enum(QUESTION_TYPES)).optional(),
+    domains: z.array(z.enum(DOMAIN_IDS)).min(1).optional(),
+    subdomains: z.array(z.string().min(1)).min(1).optional(),
+    concepts: z.array(z.string().min(1)).min(1).optional(),
+    excludeConcepts: z.array(z.string().min(1)).min(1).optional(),
+    thinkingStyles: z.array(z.enum(THINKING_STYLES)).min(1).optional(),
+    questionTypes: z.array(z.enum(QUESTION_TYPES)).min(1).optional(),
     questionCount: z.number().int().min(1).max(20).optional(),
     difficulty: DifficultyAbsoluteSchema.optional(),
     constraints: z
@@ -41,8 +46,8 @@ export const CustomSessionSpecSchema = z
         language: z.enum(["ja", "en"]).optional(),
         codeLanguage: z.string().min(1).optional(),
         timeLimitSec: z.number().int().min(5).max(3600).optional(),
-        mustInclude: z.array(z.string().min(1)).optional(),
-        avoid: z.array(z.string().min(1)).optional(),
+        mustInclude: z.array(z.string().min(1)).min(1).optional(),
+        avoid: z.array(z.string().min(1)).min(1).optional(),
       })
       .strict()
       .optional(),
@@ -71,12 +76,28 @@ export const CUSTOM_SESSION_JSON_SCHEMA = {
     additionalProperties: false,
     required: [],
     properties: {
-      domains: { type: "array", items: { type: "string", enum: [...DOMAIN_IDS] } },
-      subdomains: { type: "array", items: { type: "string" } },
-      concepts: { type: "array", items: { type: "string" } },
-      excludeConcepts: { type: "array", items: { type: "string" } },
-      thinkingStyles: { type: "array", items: { type: "string", enum: [...THINKING_STYLES] } },
-      questionTypes: { type: "array", items: { type: "string", enum: [...QUESTION_TYPES] } },
+      domains: {
+        type: "array",
+        minItems: 1,
+        items: { type: "string", enum: [...DOMAIN_IDS] },
+      },
+      subdomains: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+      concepts: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+      excludeConcepts: {
+        type: "array",
+        minItems: 1,
+        items: { type: "string", minLength: 1 },
+      },
+      thinkingStyles: {
+        type: "array",
+        minItems: 1,
+        items: { type: "string", enum: [...THINKING_STYLES] },
+      },
+      questionTypes: {
+        type: "array",
+        minItems: 1,
+        items: { type: "string", enum: [...QUESTION_TYPES] },
+      },
       questionCount: { type: "integer", minimum: 1, maximum: 20 },
       difficulty: {
         type: "object",
@@ -92,10 +113,18 @@ export const CUSTOM_SESSION_JSON_SCHEMA = {
         additionalProperties: false,
         properties: {
           language: { type: "string", enum: ["ja", "en"] },
-          codeLanguage: { type: "string" },
+          codeLanguage: { type: "string", minLength: 1 },
           timeLimitSec: { type: "integer", minimum: 5, maximum: 3600 },
-          mustInclude: { type: "array", items: { type: "string" } },
-          avoid: { type: "array", items: { type: "string" } },
+          mustInclude: {
+            type: "array",
+            minItems: 1,
+            items: { type: "string", minLength: 1 },
+          },
+          avoid: {
+            type: "array",
+            minItems: 1,
+            items: { type: "string", minLength: 1 },
+          },
         },
       },
       updateMastery: { type: "boolean" },
