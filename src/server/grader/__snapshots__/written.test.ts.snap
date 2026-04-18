@@ -1,0 +1,35 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildWrittenGradingPrompt > snapshot: 代表入力 (rubric あり) 1`] = `
+{
+  "system": "You are a senior engineer grading a written answer to an engineering question.
+Output strictly as JSON matching the provided schema. Use 日本語 for all human-readable fields.",
+  "user": "## Output requirements (固定)
+
+- \`score\` (number, 0.0-1.0): ルーブリックの weight で加重した総合点。部分点あり
+- \`correct\` (boolean): score が閾値を超えたか (サーバー側で上書きするので LLM 値は参考値)
+- \`feedback\` (string): 合格点 / 不合格点を 2-4 文で日本語 (強み / 弱みの両面)
+- \`rubricChecks\` (array): ルーブリック各項目の結果
+  - \`id\` (string): 入力通り
+  - \`passed\` (boolean): 項目 rubric を満たしたか
+  - \`comment\` (string): 満たされなかった場合は何が足りないかを 1-2 文で
+
+## Question (可変)
+
+TCP 輻輳制御の基本アルゴリズムを複数段落で説明。
+
+## Expected answer (可変、模範解答の骨子)
+
+Slow start / Congestion avoidance / Fast retransmit / Fast recovery の 4 段階。
+
+## Rubric (可変、採点基準)
+
+- id=r1: slow start に言及 (weight=0.25)
+- id=r2: cwnd 増加の式に言及 (weight=0.25)
+- id=r3: fast retransmit / fast recovery の違い (weight=0.5)
+
+## User answer (可変、被採点テキスト)
+
+TCP の輻輳制御は slow start で指数関数的に cwnd を増やし、閾値を超えたら AIMD で線形に増やす。3 ACK が来たら fast retransmit で再送する。",
+}
+`;

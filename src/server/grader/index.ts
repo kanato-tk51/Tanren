@@ -14,6 +14,7 @@ import { updateMasteryAfterAttempt } from "@/server/scheduler/update-mastery";
 
 import { gradeMcq } from "./mcq";
 import { gradeShort } from "./short";
+import { gradeWritten } from "./written";
 
 export type GradeAttemptInput = {
   userId: string;
@@ -91,8 +92,11 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
       feedback: result.feedback,
       rubricChecks: [],
     };
-  } else if (question.type === "short") {
-    const result = await gradeShort({ question, userAnswer: input.userAnswer });
+  } else if (question.type === "short" || question.type === "written") {
+    const result =
+      question.type === "short"
+        ? await gradeShort({ question, userAnswer: input.userAnswer })
+        : await gradeWritten({ question, userAnswer: input.userAnswer });
     row = {
       userId: input.userId,
       sessionId: input.sessionId,
@@ -116,7 +120,10 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
       rubricChecks: result.rubricChecks,
     };
   } else {
-    throw new Error(`grading for type="${question.type}" is not implemented (issue #14+)`);
+    throw new TRPCError({
+      code: "NOT_IMPLEMENTED",
+      message: `grading for type="${question.type}" is not implemented yet`,
+    });
   }
 
   // (session_id, question_id) の unique index で二重 submit を防ぐ。
