@@ -7,6 +7,7 @@
 
 ## 0. まず読むもの
 
+- `AGENTS.md` — Next.js 最新版の注意 (学習データより後の breaking change に注意)
 - `docs/README.md` — 設計ドキュメントの目次
 - `docs/08-mvp-roadmap.md` — 今どのフェーズにいるか
 - `docs/OPEN_QUESTIONS.md` — 決まっていない論点 (勝手に決めない)
@@ -35,22 +36,22 @@
 
 ## 3. 禁止事項 (やらないで)
 
-| やらない | 理由 |
-|---|---|
-| Bun / Deno に差し替え | Vercel 相性、決定済み (`06.5.1`) |
-| 他 LLM プロバイダ (Anthropic / Google 等) 追加 | OpenAI 一本で行く (ADR-0005) |
-| Turso / SQLite / 他 DB に戻す | Neon に確定 (ADR-0003) |
-| Clerk / Auth.js / OAuth を追加 | Passkey 一本 (ADR-0004) |
-| Upstash Redis / PostHog / Logtail 追加 | MVP では使わない (`06.5.2`) |
-| Web Push 実装 | Phase 5+、メールが先 |
-| Streak / バッジ / ポイント | ゲーミフィケーション禁止 (`08.9`) |
-| 英語 UI / i18n | スコープ外 |
-| マルチテナント / ソーシャル | 個人用 |
-| `--no-verify` でコミット | 必ずフックを通す |
-| main に直 push | PR 経由のみ |
-| docs を変えずに設計変更 | ドキュメントが真実の源 |
-| `difficulty` に `intro/applied/edge_case` を使う | ADR-0001 で廃止済み。6 段階 only |
-| `NEXT_PUBLIC_*` で LLM / DB キーを公開 | サーバー専用変数 |
+| やらない                                         | 理由                              |
+| ------------------------------------------------ | --------------------------------- |
+| Bun / Deno に差し替え                            | Vercel 相性、決定済み (`06.5.1`)  |
+| 他 LLM プロバイダ (Anthropic / Google 等) 追加   | OpenAI 一本で行く (ADR-0005)      |
+| Turso / SQLite / 他 DB に戻す                    | Neon に確定 (ADR-0003)            |
+| Clerk / Auth.js / OAuth を追加                   | Passkey 一本 (ADR-0004)           |
+| Upstash Redis / PostHog / Logtail 追加           | MVP では使わない (`06.5.2`)       |
+| Web Push 実装                                    | Phase 5+、メールが先              |
+| Streak / バッジ / ポイント                       | ゲーミフィケーション禁止 (`08.9`) |
+| 英語 UI / i18n                                   | スコープ外                        |
+| マルチテナント / ソーシャル                      | 個人用                            |
+| `--no-verify` でコミット                         | 必ずフックを通す                  |
+| main に直 push                                   | PR 経由のみ                       |
+| docs を変えずに設計変更                          | ドキュメントが真実の源            |
+| `difficulty` に `intro/applied/edge_case` を使う | ADR-0001 で廃止済み。6 段階 only  |
+| `NEXT_PUBLIC_*` で LLM / DB キーを公開           | サーバー専用変数                  |
 
 ## 4. コーディング規約
 
@@ -130,11 +131,13 @@
 ## 6. テスト方針 (再掲: `06.8a`)
 
 MVP で書く:
+
 - FSRS スケジューラ / Daily Drill 優先度 / マスタリー計算 — unit (Vitest)
 - NL パーサの出力 JSON 妥当性 — contract (Zod)
 - tRPC ルータの型整合 — `tsc`
 
 書かない:
+
 - UI の E2E (自分が触るので十分)
 - 採点プロンプトの全組合せ網羅
 

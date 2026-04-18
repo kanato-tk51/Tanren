@@ -5,31 +5,32 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 .pnpm-store/
+.pnpm-debug.log*
 
-# --- Next.js ---
+# --- Next.js / Turbopack ---
 .next/
 out/
+build/
 next-env.d.ts
 *.tsbuildinfo
 
-# --- 環境変数 (絶対コミットしない) ---
+# --- 環境変数 (絶対コミットしない、ただし .env.example は track する) ---
 .env
-.env.local
-.env.*.local
-.env.development
-.env.production
+.env.*
+!.env.example
 
-# --- Turso / Drizzle ---
+# --- Drizzle ---
 *.db
 *.db-journal
 drizzle/meta/
 .drizzle/
 
+# --- Vercel ---
+.vercel/
+
 # --- ビルド成果物 ---
 dist/
-build/
 coverage/
-.vercel/
 .turbo/
 
 # --- ログ ---
@@ -62,5 +63,3 @@ Thumbs.db
 *.pem
 *.key
 secrets/
-.vercel
-.env*.local

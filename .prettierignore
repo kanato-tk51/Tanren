@@ -1,0 +1,8 @@
+.next/
+node_modules/
+pnpm-lock.yaml
+public/
+.vercel/
+.env*
+next-env.d.ts
+drizzle/
