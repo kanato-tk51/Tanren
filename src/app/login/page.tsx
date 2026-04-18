@@ -1,9 +1,9 @@
-import { HomeScreen } from "@/features/home/home-screen";
+import { LoginForm } from "@/features/auth/login-form";
 
-export default function Home() {
+export default function LoginPage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
-      <HomeScreen />
+      <LoginForm />
     </main>
   );
 }
