@@ -131,12 +131,27 @@ export const sessionRouter = router({
         });
       }
 
-      const concept = input.conceptId ? { id: input.conceptId } : await pickConceptForDrill();
-      const { question } = await generateMcq({
-        conceptId: concept.id,
-        difficulty: input.difficulty,
-        thinkingStyle: input.thinkingStyle,
-      });
+      // 予約後に問題生成が失敗したら pendingQuestionId を null に戻してセッションを復帰させる。
+      // finally では throw を再送出するので、ロールバック自体が成功しなくても本体エラーが優先される
+      let question: Awaited<ReturnType<typeof generateMcq>>["question"];
+      try {
+        const concept = input.conceptId ? { id: input.conceptId } : await pickConceptForDrill();
+        const generated = await generateMcq({
+          conceptId: concept.id,
+          difficulty: input.difficulty,
+          thinkingStyle: input.thinkingStyle,
+        });
+        question = generated.question;
+      } catch (err) {
+        await getDb()
+          .update(sessions)
+          .set({ spec: { ...spec, pendingQuestionId: null } })
+          .where(eq(sessions.id, session.id))
+          .catch(() => {
+            // ロールバック失敗は握りつぶす (本体エラーを優先して throw する)
+          });
+        throw err;
+      }
 
       // 出題中の questionId を session に記録 (submit 時の整合性チェック用)
       await getDb()
