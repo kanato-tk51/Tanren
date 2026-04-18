@@ -131,6 +131,21 @@ export const sessionRouter = router({
           });
         }
       }
+      // MVP は thinkingStyles を 1 件までしか出題に反映できない (next は [0] のみ参照)。
+      // 2 件以上指定は「指定が黙示に捨てられる」虚偽表示になるため reject。
+      if (input.customSpec?.thinkingStyles && input.customSpec.thinkingStyles.length > 1) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Custom Session MVP は thinkingStyles を 1 件のみ指定できます",
+        });
+      }
+      // MVP は concepts も 1 件まで (next は [0] のみ参照、2 件目以降は使われない)
+      if (input.customSpec?.concepts && input.customSpec.concepts.length > 1) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Custom Session MVP は concepts を 1 件のみ指定できます",
+        });
+      }
       // constraints は MVP で生成プロンプトに反映されないため、該当フィールドがあれば reject
       // (プレビューで「指定した」と見えて実行時に無視されるのは虚偽表示に近い挙動なので)。
       if (input.customSpec?.constraints) {

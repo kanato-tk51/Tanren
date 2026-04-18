@@ -126,6 +126,32 @@ describe("session.start with customSpec validation", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
+  it("MVP 未対応: thinkingStyles 2 件以上は BAD_REQUEST", async () => {
+    await expect(
+      caller.session.start({
+        kind: "custom",
+        customSpec: {
+          questionCount: 3,
+          difficulty: { kind: "absolute", level: "junior" },
+          thinkingStyles: ["trade_off", "edge_case"],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("MVP 未対応: concepts 2 件以上は BAD_REQUEST", async () => {
+    await expect(
+      caller.session.start({
+        kind: "custom",
+        customSpec: {
+          questionCount: 3,
+          difficulty: { kind: "absolute", level: "junior" },
+          concepts: ["network.tcp.basics", "network.tcp.congestion"],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
   it("questionTypes=['mcq'] 単体は accept (正のケース: DB まで到達する)", async () => {
     // DB へのアクセスは fake user ではエラーになるので、start 入力バリデーションを通過して
     // DB 層に到達したことの確認として、バリデーション以外のエラーに落ちれば OK。
