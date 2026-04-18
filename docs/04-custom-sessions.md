@@ -50,53 +50,58 @@
 
 ## 4.3. CustomSessionSpec のスキーマ
 
+真実の源は `src/server/parser/schema.ts` の `CustomSessionSpecSchema` (Zod)。
+MVP では**未指定フィールドは全て omit** する方針 (§4.4.2 参照)。
+したがって UI / セッション開始ロジック側で既定値を補完する責務を持つ。
+命名は実装に合わせて camelCase。
+
 ```typescript
 type CustomSessionSpec = {
-  // 範囲
-  domains?: string[];              // ['os', 'network']
-  subdomains?: string[];           // ['network.tcp']
-  concepts?: string[];             // ['network.tcp.congestion']
-  exclude_concepts?: string[];
+  // 範囲 (すべて optional)
+  domains?: DomainId[]; // ['os', 'network']
+  subdomains?: string[]; // ['network.tcp']
+  concepts?: string[]; // ['network.tcp.congestion']
+  excludeConcepts?: string[];
 
-  // 思考スタイル (複数選択可)
-  thinking_styles: ThinkingStyle[];
+  // 思考スタイル (複数選択可、未指定なら omit)
+  thinkingStyles?: ThinkingStyle[];
 
-  // 問題形式
-  question_types?: QuestionType[];
-  question_count: number;
+  // 問題形式 (未指定なら omit)
+  questionTypes?: QuestionType[];
+  questionCount?: number; // 1-20、未指定なら UI 側で既定 5 を補完
 
-  // 難易度 (絶対 or 相対)
-  difficulty: DifficultySpec;
+  // 難易度 (MVP は absolute のみ)
+  difficulty?: DifficultySpec;
 
   // 制約
   constraints?: {
-    language?: 'ja' | 'en';
-    code_language?: 'python' | 'ts' | 'go' | '...';
-    time_limit_sec?: number;
-    must_include?: string[];     // 「必ず TLS 1.3 を含めて」
-    avoid?: string[];            // 「OSI 参照モデルは避けて」
+    language?: "ja" | "en";
+    codeLanguage?: string;
+    timeLimitSec?: number;
+    mustInclude?: string[]; // 「必ず TLS 1.3 を含めて」
+    avoid?: string[]; // 「OSI 参照モデルは避けて」
   };
 
-  // FSRS 連動
-  update_mastery: boolean;        // この回の成績を mastery に反映するか
+  // FSRS 連動 (未指定なら UI 側で true と解釈)
+  updateMastery?: boolean;
 };
 
 // MVP の実装型 (src/db/schema/_constants.ts THINKING_STYLES と同期)。
 // 当初 docs で挙げていた memorization / design / code_reading などの細粒度は
 // Phase 5+ 以降で追加検討。MVP は 6 スタイルに圧縮している。
 type ThinkingStyle =
-  | 'why'           // なぜそうなっているか
-  | 'how'           // どう動くか / 手順
-  | 'trade_off'     // 選択肢の比較検討
-  | 'edge_case'     // 例外 / 罠 / 境界
-  | 'compare'       // 2 者の違いを説明
-  | 'apply';        // 実務適用 / シナリオ
+  | "why" // なぜそうなっているか
+  | "how" // どう動くか / 手順
+  | "trade_off" // 選択肢の比較検討
+  | "edge_case" // 例外 / 罠 / 境界
+  | "compare" // 2 者の違いを説明
+  | "apply"; // 実務適用 / シナリオ
 
-type DifficultySpec =
-  | { kind: 'absolute'; level: 'beginner' | 'junior' | 'mid' | 'senior' | 'staff' | 'principal' }
-  | { kind: 'relative'; offset: -2 | -1 | 0 | +1 | +2 }   // 自分の平均から
-  | { kind: 'numeric'; value: number /* 1-10 */ }
-  | { kind: 'interview'; company_tier: 'faang' | 'startup' | 'generic' };
+// MVP は absolute のみ。relative / numeric / interview は Phase 5+。
+type DifficultySpec = {
+  kind: "absolute";
+  level: "beginner" | "junior" | "mid" | "senior" | "staff" | "principal";
+};
 ```
 
 ---
@@ -127,10 +132,10 @@ Convert the user's natural-language request into a CustomSessionSpec JSON.
 [why, how, trade_off, edge_case, compare, apply]
 
 ## Rules
-- If a field is not mentioned, omit it (don't invent).
+- If a field is not mentioned, omit it (don't invent). 既定値は UI 側で補完する。
 - Map vague Japanese:
     「深く考える」 → thinkingStyles: ["why", "trade_off"]
-    「基礎」       → difficulty.level: junior (thinkingStyles は空)
+    「基礎」       → difficulty.level: junior (thinkingStyles は omit)
     「面接レベル」 → senior + thinkingStyles: ["trade_off", "edge_case"]
     「実務的」     → thinkingStyles: ["apply"]
     「違いを比べて」 → thinkingStyles: ["compare"]
@@ -237,9 +242,9 @@ N 問生成 → 出題 → 採点 (通常ループと同じ)
 ```
 📁 My Templates
   ├─ TLS 深掘り (5問、記述、senior、trade_off)
-  ├─ 分散システム面接対策 (10問、mixed、staff)
+  ├─ 分散システム面接対策 (10問、staff、trade_off + edge_case)
   ├─ 今週作ったコードから出題 (Phase 2)
-  └─ SQL パフォーマンス (applied_scenario、debugging)
+  └─ SQL パフォーマンス (apply + edge_case)
 ```
 
 ### 4.8.1. Template の構造
