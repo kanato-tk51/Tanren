@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import {
@@ -29,12 +29,20 @@ export type GenerateMcqResult = {
   source: "cache" | "generated";
 };
 
-/** 直近出題の要約文 (重複回避ヒント用) */
+/** 直近 30 日の出題要約文 (prompt の重複回避ヒント用、retired を除外して新しい順) */
 async function fetchPastSummaries(conceptId: string, max = 5): Promise<string[]> {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const rows = await getDb()
     .select({ prompt: questions.prompt })
     .from(questions)
-    .where(eq(questions.conceptId, conceptId))
+    .where(
+      and(
+        eq(questions.conceptId, conceptId),
+        eq(questions.retired, false),
+        gte(questions.createdAt, since),
+      ),
+    )
+    .orderBy(desc(questions.createdAt))
     .limit(max);
   return rows.map((r) => r.prompt.slice(0, 60)).filter(Boolean);
 }
@@ -44,6 +52,47 @@ async function loadConcept(conceptId: string): Promise<Concept> {
   const row = rows[0];
   if (!row) throw new Error(`unknown concept: ${conceptId}`);
   return row;
+}
+
+/** この concept で許可されている難易度以外を指定されたら弾く (questions テーブルの汚染防止) */
+function assertDifficultyAllowed(concept: Concept, difficulty: DifficultyLevel): void {
+  const allowed = concept.difficultyLevels;
+  if (!allowed.includes(difficulty)) {
+    throw new Error(
+      `difficulty ${difficulty} is not allowed for concept ${concept.id} (allowed: ${allowed.join(",")})`,
+    );
+  }
+}
+
+/**
+ * 最小キャッシュ件数。cache 件数が MIN_CACHE_COUNT 未満のときは必ず新規生成して
+ * キャッシュを育てる。以降は 50/50 で cache hit / 新規生成を分岐 (docs/03 §3.3.4)。
+ */
+const MIN_CACHE_COUNT = 3;
+const FRESH_GENERATION_RATIO = 0.5;
+
+async function countCachedQuestions(params: {
+  conceptId: string;
+  difficulty: DifficultyLevel;
+  thinkingStyle: ThinkingStyle | null;
+}): Promise<number> {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const db = getDb();
+  const predicates = [
+    eq(questions.conceptId, params.conceptId),
+    eq(questions.type, "mcq"),
+    eq(questions.difficulty, params.difficulty),
+    eq(questions.retired, false),
+    gte(questions.createdAt, since),
+  ];
+  if (params.thinkingStyle) {
+    predicates.push(eq(questions.thinkingStyle, params.thinkingStyle));
+  }
+  const rows = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(questions)
+    .where(and(...predicates));
+  return rows[0]?.count ?? 0;
 }
 
 /**
@@ -81,30 +130,41 @@ export async function generateMcq(
   llm: McqLlmCaller = defaultMcqLlm,
 ): Promise<GenerateMcqResult> {
   const db = getDb();
+  const concept = await loadConcept(input.conceptId);
+  assertDifficultyAllowed(concept, input.difficulty);
 
   if (!input.forceFresh) {
-    const cached = await findCachedQuestion(db, {
+    // キャッシュが十分育っていれば 50/50 で cache hit / 新規生成を選ぶ (docs/03 §3.3.4)
+    const cacheCount = await countCachedQuestions({
       conceptId: input.conceptId,
-      type: "mcq",
-      thinkingStyle: input.thinkingStyle,
       difficulty: input.difficulty,
+      thinkingStyle: input.thinkingStyle,
     });
-    if (cached) {
-      // キャッシュローテーション: serve_count を増やし last_served_at を更新することで、
-      // 次回は未使用 (last_served_at IS NULL) の別問題が優先され、30d 内に出題が分散する
-      const [updated] = await db
-        .update(questions)
-        .set({
-          serveCount: sql`${questions.serveCount} + 1`,
-          lastServedAt: new Date(),
-        })
-        .where(eq(questions.id, cached.id))
-        .returning();
-      return { question: updated ?? cached, source: "cache" };
+    const useCache = cacheCount >= MIN_CACHE_COUNT && Math.random() >= FRESH_GENERATION_RATIO;
+
+    if (useCache) {
+      const cached = await findCachedQuestion(db, {
+        conceptId: input.conceptId,
+        type: "mcq",
+        thinkingStyle: input.thinkingStyle,
+        difficulty: input.difficulty,
+      });
+      if (cached) {
+        // キャッシュローテーション: serve_count を増やし last_served_at を更新することで、
+        // 次回は未使用 (last_served_at IS NULL) の別問題が優先され、30d 内に出題が分散する
+        const [updated] = await db
+          .update(questions)
+          .set({
+            serveCount: sql`${questions.serveCount} + 1`,
+            lastServedAt: new Date(),
+          })
+          .where(eq(questions.id, cached.id))
+          .returning();
+        return { question: updated ?? cached, source: "cache" };
+      }
     }
   }
 
-  const concept = await loadConcept(input.conceptId);
   const past = await fetchPastSummaries(input.conceptId);
   const { system, user } = buildMcqPrompt({
     concept,
