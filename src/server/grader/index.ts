@@ -181,8 +181,12 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
             reasonGiven: input.reasonGiven,
           });
         }
-      } catch {
-        // 誤概念抽出の失敗は採点結果の返却を妨げない (docs/03 §3.4.1)
+      } catch (err) {
+        // 誤概念抽出の失敗は採点結果の返却を妨げない (docs/03 §3.4.1) が、
+        // 完全に沈黙させると原因調査できないため console.error でログに残す。
+        // Sentry 導入後 (#27) は captureException に置き換える。
+         
+        console.error("extractAndPersistMisconception failed", err);
       }
     }
     return grade;

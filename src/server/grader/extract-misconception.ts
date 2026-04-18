@@ -8,11 +8,30 @@ import { MODEL_MAIN } from "@/lib/openai/models";
 
 import { renderTemplate } from "../generator/prompt-template";
 
+/**
+ * 類似 description のマージ判定用 normalize。
+ * - trim
+ * - 連続する空白を 1 つに
+ * - lower (ASCII のみ)
+ * - 末尾の句点「。.」を削る
+ * 完全に意味的な同義判定ではないが、LLM 表現の軽微な揺れ
+ * (大小文字 / 末尾句点 / 余計な空白) を吸収して count 加算ヒットさせる。
+ */
+export function normalizeMisconceptionDescription(raw: string): string {
+  return raw
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .replace(/[。.]+$/u, "")
+    .trim();
+}
+
 export const EXTRACT_MISCONCEPTION_PROMPT_VERSION = "extract-misconception.v1";
 const TEMPLATE_PATH = "grading/extract-misconception.v1.md";
 
+// prompt の「最大 100 文字」と合わせる。LLM が多少超過することは許容して max は少し緩め。
 const MisconceptionSchema = z.object({
-  description: z.string().max(200),
+  description: z.string().max(100),
   confidence: z.number().min(0).max(1),
 });
 
@@ -26,7 +45,7 @@ const JSON_SCHEMA = {
     additionalProperties: false,
     required: ["description", "confidence"],
     properties: {
-      description: { type: "string" },
+      description: { type: "string", maxLength: 100 },
       confidence: { type: "number", minimum: 0, maximum: 1 },
     },
   },
@@ -105,17 +124,19 @@ export async function extractAndPersistMisconception(
   await upsertMisconception({
     userId: input.userId,
     conceptId: input.concept.id,
-    description: parsed.description.trim(),
+    // normalize して保存キーを安定化させる (類似揺れを 1 行に集約)
+    description: normalizeMisconceptionDescription(parsed.description),
   });
   return { saved: true, extracted: parsed };
 }
 
 /**
- * user × concept × description (1文字単位の完全一致) の misconception を upsert する。
- * 既存があれば count +1 + last_seen 更新、なければ INSERT。
+ * user × concept × description (normalize 済み) の misconception を upsert。
+ * uq_misconceptions_user_concept_desc の一意制約に乗せて ON CONFLICT DO UPDATE で
+ * 原子的に count +1 する (並行誤答での重複行生成を防ぐ、Codex Round 1 P0)。
  *
- * 注意: description 完全一致は LLM の表現揺れに弱いため、docs/03 §3.4.1 にある「類似判定」
- * (LLM での近似マッチ or embedding) は Phase 5+ で上乗せ。MVP はこのまま文字列一致。
+ * description は normalizeMisconceptionDescription で事前に正規化すること
+ * (大小文字・末尾句点・空白を吸収)。
  */
 export async function upsertMisconception(params: {
   userId: string;
@@ -123,33 +144,20 @@ export async function upsertMisconception(params: {
   description: string;
 }): Promise<void> {
   const db = getDb();
-  const existing = await db
-    .select()
-    .from(misconceptions)
-    .where(
-      and(
-        eq(misconceptions.userId, params.userId),
-        eq(misconceptions.conceptId, params.conceptId),
-        eq(misconceptions.description, params.description),
-      ),
-    )
-    .limit(1);
-
-  if (existing[0]) {
-    await db
-      .update(misconceptions)
-      .set({
-        count: sql`${misconceptions.count} + 1`,
-        lastSeen: sql`now()`,
-      })
-      .where(eq(misconceptions.id, existing[0].id));
-  } else {
-    await db.insert(misconceptions).values({
+  await db
+    .insert(misconceptions)
+    .values({
       userId: params.userId,
       conceptId: params.conceptId,
       description: params.description,
+    })
+    .onConflictDoUpdate({
+      target: [misconceptions.userId, misconceptions.conceptId, misconceptions.description],
+      set: {
+        count: sql`${misconceptions.count} + 1`,
+        lastSeen: sql`now()`,
+      },
     });
-  }
 }
 
 /**

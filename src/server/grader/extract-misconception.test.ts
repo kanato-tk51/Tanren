@@ -1,13 +1,32 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildExtractMisconceptionPrompt,
   extractAndPersistMisconception,
+  normalizeMisconceptionDescription,
 } from "./extract-misconception";
 
-// upsertMisconception は DB を呼ぶので、テスト側で extract-misconception.ts の
-// `upsertMisconception` を vi.spyOn で差し替えて DB 呼び出しをスキップする。
-vi.mock("@/db/client", () => ({ getDb: vi.fn() }));
+// upsertMisconception は ON CONFLICT で upsert する。テスト側は insert().values().onConflictDoUpdate()
+// のチェーンを stub して、呼び出し内容 (特に userId/conceptId/description) を検証できるようにする。
+const onConflictSpy = vi.fn();
+const valuesSpy = vi.fn();
+vi.mock("@/db/client", () => {
+  const onConflictDoUpdate = vi.fn((v: unknown) => {
+    onConflictSpy(v);
+    return Promise.resolve();
+  });
+  const values = vi.fn((v: unknown) => {
+    valuesSpy(v);
+    return { onConflictDoUpdate };
+  });
+  const insert = vi.fn().mockReturnValue({ values });
+  return { getDb: vi.fn().mockReturnValue({ insert }) };
+});
+
+beforeEach(() => {
+  onConflictSpy.mockClear();
+  valuesSpy.mockClear();
+});
 
 const baseInput = {
   userId: "u-1",
@@ -74,5 +93,43 @@ describe("extractAndPersistMisconception", () => {
     const caller = vi.fn().mockResolvedValue({ description: "", confidence: 0 });
     const res = await extractAndPersistMisconception(baseInput, caller);
     expect(res.saved).toBe(false);
+  });
+
+  it("confidence >= 0.5 なら保存 (saved=true、description は normalize 後の形で upsert)", async () => {
+    const caller = vi.fn().mockResolvedValue({
+      description: "  TLS 1.3 の鍵交換は RSA と誤解 。  ",
+      confidence: 0.9,
+    });
+    const res = await extractAndPersistMisconception(baseInput, caller);
+    expect(res.saved).toBe(true);
+    expect(valuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "u-1",
+        conceptId: "network.tls.key_exchange",
+        description: "tls 1.3 の鍵交換は rsa と誤解", // trim + lower + 末尾句点削除 + 空白圧縮
+      }),
+    );
+    expect(onConflictSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ set: expect.any(Object) }),
+    );
+  });
+});
+
+describe("normalizeMisconceptionDescription", () => {
+  it("trim + lower + 連続空白 → 1 空白 + 末尾句点削除", () => {
+    expect(normalizeMisconceptionDescription("  TLS 1.3 の  鍵交換   は RSA 。")).toBe(
+      "tls 1.3 の 鍵交換 は rsa",
+    );
+  });
+
+  it("末尾句点 (全角 / 半角) を削る", () => {
+    expect(normalizeMisconceptionDescription("Foo.")).toBe("foo");
+    expect(normalizeMisconceptionDescription("Foo。")).toBe("foo");
+    expect(normalizeMisconceptionDescription("Foo.。.")).toBe("foo");
+  });
+
+  it("入力が空なら空を返す (crash しない)", () => {
+    expect(normalizeMisconceptionDescription("")).toBe("");
+    expect(normalizeMisconceptionDescription("   ")).toBe("");
   });
 });
