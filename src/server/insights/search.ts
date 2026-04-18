@@ -40,7 +40,11 @@ export async function fetchSearch(params: {
   const q = params.q.trim();
   if (q.length === 0) return { hits: [], domainHits: [] };
   const limit = Math.min(Math.max(params.limit ?? 50, 1), 200);
-  const pattern = `%${q}%`;
+  // LIKE ワイルドカード文字 (% _ \\) を escape して「ユーザーの意図通りの部分一致」に揃える。
+  // hitSource 判定 (containsIgnoreCase) は literal includes なので、この escape により
+  // SQL 側 ILIKE と JS 判定の挙動が一致する (Round 2 指摘 #1 解消)。
+  const escaped = q.replace(/[\\%_]/g, (c) => `\\${c}`);
+  const pattern = `%${escaped}%`;
   const db = getDb();
 
   // attempts と misconceptions の両方から最大 limit 件ずつ引き、マージ後にもう一度 limit で
