@@ -2,8 +2,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { cookies } from "next/headers";
 
 import type { User } from "@/db/schema";
-import { DEV_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME } from "@/server/auth/constants";
-import { resolveSession } from "@/server/auth/session";
+import { refreshSessionCookie, resolveSession } from "@/server/auth/session";
 
 /**
  * tRPC 用のリクエストコンテキスト。cookie → sessions_auth → users の解決結果を `user` に入れる。
@@ -17,34 +16,8 @@ export async function createTrpcContext(): Promise<TrpcContext> {
     const store = await cookies();
     const resolved = await resolveSession(store);
     if (!resolved) return { user: null };
-
-    // 30 日 sliding: 延長された expiresAt で cookie を再発行 (失敗は握りつぶす)
-    try {
-      if (resolved.kind === "passkey") {
-        store.set({
-          name: SESSION_COOKIE_NAME,
-          value: resolved.sessionId,
-          httpOnly: true,
-          secure: true,
-          sameSite: "lax",
-          path: "/",
-          expires: resolved.expiresAt,
-        });
-      } else {
-        store.set({
-          name: DEV_SESSION_COOKIE_NAME,
-          value: resolved.sessionId,
-          httpOnly: true,
-          sameSite: "lax",
-          path: "/",
-          expires: resolved.expiresAt,
-          secure: process.env.NODE_ENV === "production",
-        });
-      }
-    } catch {
-      // Server Component から呼ばれた場合など store.set が不可のケース。DB 側は既に延長済み
-    }
-
+    // 30 日 sliding: 延長された expiresAt で cookie を再発行
+    refreshSessionCookie(store, resolved);
     return { user: resolved.user };
   } catch {
     return { user: null };

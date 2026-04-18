@@ -10,7 +10,7 @@ import { sessionsAuth, users, type User } from "@/db/schema";
 
 import { DEV_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "./constants";
 
-type CookieStore = ReadonlyRequestCookies | Awaited<ReturnType<typeof cookies>>;
+export type CookieStore = ReadonlyRequestCookies | Awaited<ReturnType<typeof cookies>>;
 
 type SessionResolution = {
   user: User;
@@ -88,9 +88,48 @@ export async function destroySession(sessionId: string): Promise<void> {
   await getDb().delete(sessionsAuth).where(eq(sessionsAuth.id, sessionId));
 }
 
-/** Route Handler 内で使うヘルパ */
+/**
+ * 既存セッションの cookie を延長された expiresAt で再発行する共通ヘルパ。
+ * tRPC context / Route Handler どちらからも呼べるよう、`store.set` が不可な文脈では
+ * 例外を握りつぶす (DB 側は既に延長済みなので整合は保たれる)。
+ */
+export function refreshSessionCookie(
+  store: CookieStore,
+  resolution: Pick<SessionResolution, "sessionId" | "expiresAt" | "kind">,
+): void {
+  try {
+    if (resolution.kind === "passkey") {
+      store.set({
+        name: SESSION_COOKIE_NAME,
+        value: resolution.sessionId,
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        path: "/",
+        expires: resolution.expiresAt,
+      });
+    } else {
+      store.set({
+        name: DEV_SESSION_COOKIE_NAME,
+        value: resolution.sessionId,
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        expires: resolution.expiresAt,
+        secure: process.env.NODE_ENV === "production",
+      });
+    }
+  } catch {
+    // Server Component など store.set が呼べない文脈では DB 側の延長で十分 (cookie は
+    // 次回ミドルウェア / Route Handler 経由で再発行される)
+  }
+}
+
+/** Route Handler 内で使うヘルパ。sliding expiry の cookie 再発行も同時に行う */
 export async function getCurrentUser(): Promise<User | null> {
   const store = await cookies();
   const resolved = await resolveSession(store);
-  return resolved?.user ?? null;
+  if (!resolved) return null;
+  refreshSessionCookie(store, resolved);
+  return resolved.user;
 }
