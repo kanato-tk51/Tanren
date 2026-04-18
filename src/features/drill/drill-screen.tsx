@@ -119,6 +119,23 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
     }
   }, [phase, question, selectedIndex, handleStart, handleNext, handleSubmit]);
 
+  // セッション中の戻るジェスチャ / タブ閉じで意図せず終了しないよう警告
+  // (issue #25 受け入れ基準: 戻るジェスチャで意図しない終了を防ぐ)。
+  // - asking: 解答前
+  // - graded: 解答済みで「次へ」未操作
+  // finished / idle ではブロックしない (作業継続中ではないため)。
+  useEffect(() => {
+    if (!sessionId) return;
+    if (phase !== "asking" && phase !== "graded") return;
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      // Chrome 互換のため returnValue を空文字でもセットする
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [sessionId, phase]);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       // キーリピート / 既に通信中の発火を全て無視 (submit/next の二重発火抑止)
@@ -162,7 +179,7 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
           <CardDescription>5 問の mcq に解答します。</CardDescription>
         </CardHeader>
         <CardFooter>
-          <Button onClick={handleStart} disabled={pending}>
+          <Button onClick={handleStart} disabled={pending} className="min-h-12 px-6">
             {pending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
             スタート
           </Button>
@@ -187,6 +204,7 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
               reset();
               handleReset();
             }}
+            className="min-h-12 px-6"
           >
             ホームに戻る
           </Button>
@@ -241,7 +259,7 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
               disabled={phase === "graded"}
               onClick={() => setSelected(i)}
               className={[
-                "flex w-full items-start gap-3 rounded-md border p-3 text-left text-sm transition-colors",
+                "flex min-h-12 w-full items-start gap-3 rounded-md border p-3 text-left text-sm transition-colors",
                 isGradedCorrect
                   ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
                   : isWrongSelected
@@ -299,12 +317,16 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
       </CardContent>
       <CardFooter className="flex justify-end gap-2">
         {phase === "asking" ? (
-          <Button onClick={handleSubmit} disabled={selectedIndex === null || pending}>
+          <Button
+            onClick={handleSubmit}
+            disabled={selectedIndex === null || pending}
+            className="min-h-12 px-6"
+          >
             {pending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
             回答する (Enter)
           </Button>
         ) : (
-          <Button onClick={handleNext} disabled={pending}>
+          <Button onClick={handleNext} disabled={pending} className="min-h-12 px-6">
             次へ (Enter)
           </Button>
         )}

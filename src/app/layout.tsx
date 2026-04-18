@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 
+import { AppShell } from "@/components/layout/app-shell";
 import { RegisterServiceWorker } from "@/features/pwa/register-sw";
 import { TrpcProvider } from "@/lib/trpc/react";
 
@@ -51,7 +52,9 @@ export default function RootLayout({
       <body className="flex min-h-full flex-col">
         <RegisterServiceWorker />
         <NuqsAdapter>
-          <TrpcProvider>{children}</TrpcProvider>
+          <TrpcProvider>
+            <AppShell>{children}</AppShell>
+          </TrpcProvider>
         </NuqsAdapter>
       </body>
     </html>

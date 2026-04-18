@@ -370,8 +370,11 @@ Phase 5+ で実運用テスト (iOS で確実に届くか) をした上で導入
 
 ### 7.6.1. モバイル (〜 640px)
 
-- ボタン / 入力は画面下部
-- ナビは bottom tab bar
+- ボタン / 入力は画面下部 (CardFooter / 主要 CTA は最低 48px の高さ)
+- ナビは bottom tab bar (Home / Drill / Insights、`src/components/layout/bottom-nav.tsx`)
+- 没入画面 (`/drill`, `/custom`, `/review`, `/login`) では BottomNav を非表示にして
+  セッション中に意図せず別画面に飛ばないようにする (`AppShell` の `isNavHidden`)
+- セッション中は `beforeunload` で戻る/タブ閉じに警告 (DrillScreen `phase === asking|graded`)
 - 問題1つで画面埋まる
 
 ### 7.6.2. デスクトップ (1024px+)
