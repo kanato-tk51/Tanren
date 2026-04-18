@@ -120,6 +120,7 @@ export const attemptsRouter = router({
         score: graded.score,
         feedback: graded.feedback,
         overturned,
+        rubricChecks: graded.rubricChecks,
       };
     }),
 

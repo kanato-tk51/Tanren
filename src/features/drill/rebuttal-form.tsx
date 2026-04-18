@@ -63,6 +63,11 @@ export function RebuttalForm({
         score: res.score,
         feedback: res.feedback,
         rebutted: true,
+        rubricChecks: (res.rubricChecks ?? []).map((r) => ({
+          id: r.id,
+          passed: r.passed,
+          comment: r.comment ?? "",
+        })),
       });
       setNotice(
         res.overturned
