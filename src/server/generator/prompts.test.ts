@@ -51,6 +51,7 @@ describe("buildMcqPrompt", () => {
         "system": "You are a senior engineer creating a multiple-choice quiz question for a professional software engineer.
       Output strictly as JSON matching the provided schema. Use 日本語 (Japanese) for all human-readable fields.",
         "user": "## Concept
+
       id: programming.async.event_loop
       name: イベントループ
       description: JavaScript/Node.js のタスクキューとマイクロタスクの実行順
@@ -58,15 +59,27 @@ describe("buildMcqPrompt", () => {
       subdomain: async
 
       ## Spec
+
       difficulty: junior
       thinking_style: why
 
       ## Style instruction
+
       問題は「なぜそうなっているか」「理由を説明せよ」形式。表面的な定義を問わないこと。
 
       ## Avoid duplicates
+
       Past recent framings for this concept (last 30 days, if any):
-      - setTimeout の評価タイミングを問う問題",
+      - setTimeout の評価タイミングを問う問題
+
+      ## Output requirements
+
+      - \`prompt\` (string): 日本語の問題文
+      - \`answer\` (string): 正解の 1 文 (他の distractors と区別できる決定的な選択肢)
+      - \`distractors\` (string[]): 不正解候補を 3 つ。正解と紛らわしいが明らかに誤り
+      - \`explanation\` (string): なぜ answer が正しく、distractors が誤りかを簡潔に日本語で説明
+      - \`hint\` (string | null): 解答前に 1 回だけ表示できる軽いヒント (Optional)
+      - \`tags\` (string[]): 1〜4 個の短い英語タグ (domain.subdomain を含めない)",
       }
     `);
   });

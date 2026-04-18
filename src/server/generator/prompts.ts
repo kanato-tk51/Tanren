@@ -1,7 +1,10 @@
 import type { Concept, DifficultyLevel, ThinkingStyle } from "@/db/schema";
 
+import { renderTemplate } from "./prompt-template";
+
 /** 生成プロンプトのテンプレ版。docs/03-ai-strategy.md §3.3 参照 */
 export const MCQ_PROMPT_VERSION = "mcq.v1";
+const MCQ_TEMPLATE_PATH = "generation/mcq.v1.md";
 
 const STYLE_INSTRUCTION_MAP: Record<ThinkingStyle, string> = {
   why: "問題は「なぜそうなっているか」「理由を説明せよ」形式。表面的な定義を問わないこと。",
@@ -26,42 +29,28 @@ export type McqPromptInput = {
 };
 
 /**
- * mcq プロンプトを組み立てる。
- * OpenAI の prompt caching は「共通 prefix が長いほど効きやすい」ので、
- * variant が多い箇所 (concept / 履歴) は後ろに回し、固定文は前に置く。
+ * `prompts/generation/mcq.v1.md` を読み込んで変数置換し system/user を返す。
+ * テンプレは markdown が真実の源 (CLAUDE.md §4.5)。このラッパはドメイン固有の
+ * 補助辞書 (思考スタイル説明) と過去履歴の整形のみを担う。
  */
 export function buildMcqPrompt(input: McqPromptInput): {
   system: string;
   user: string;
 } {
-  const system =
-    "You are a senior engineer creating a multiple-choice quiz question for a professional software engineer.\n" +
-    "Output strictly as JSON matching the provided schema. Use 日本語 (Japanese) for all human-readable fields.";
-
   const past =
     input.pastQuestionsSummary.length === 0
       ? "(none)"
       : input.pastQuestionsSummary.map((s) => `- ${s}`).join("\n");
 
-  const user = [
-    "## Concept",
-    `id: ${input.concept.id}`,
-    `name: ${input.concept.name}`,
-    `description: ${input.concept.description ?? "(none)"}`,
-    `domain: ${input.concept.domainId}`,
-    `subdomain: ${input.concept.subdomainId}`,
-    "",
-    "## Spec",
-    `difficulty: ${input.difficulty}`,
-    `thinking_style: ${input.thinkingStyle ?? "(none)"}`,
-    "",
-    "## Style instruction",
-    styleInstruction(input.thinkingStyle),
-    "",
-    "## Avoid duplicates",
-    "Past recent framings for this concept (last 30 days, if any):",
-    past,
-  ].join("\n");
-
-  return { system, user };
+  return renderTemplate(MCQ_TEMPLATE_PATH, {
+    conceptId: input.concept.id,
+    conceptName: input.concept.name,
+    conceptDescription: input.concept.description ?? "(none)",
+    domainId: input.concept.domainId,
+    subdomainId: input.concept.subdomainId,
+    difficulty: input.difficulty,
+    thinkingStyle: input.thinkingStyle ?? "(none)",
+    styleInstruction: styleInstruction(input.thinkingStyle),
+    pastQuestionsSummary: past,
+  });
 }
