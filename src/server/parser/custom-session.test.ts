@@ -1,0 +1,133 @@
+import { describe, it, expect, vi } from "vitest";
+
+import { buildCustomSessionPrompt, parseCustomSession } from "./custom-session";
+import { CustomSessionSpecSchema, CUSTOM_SESSION_JSON_SCHEMA } from "./schema";
+
+describe("buildCustomSessionPrompt", () => {
+  it("Rules が user 冒頭、User request が末尾 (prompt caching 規約)", () => {
+    const out = buildCustomSessionPrompt("TCP の輻輳制御を senior で 5 問");
+    expect(out.user.indexOf("## Rules")).toBeLessThan(out.user.indexOf("## User request"));
+    expect(out.user).toContain("TCP の輻輳制御を senior で 5 問");
+  });
+
+  it("利用可能な domains/thinking_styles/question_types/difficulty を user 内に埋め込む", () => {
+    const out = buildCustomSessionPrompt("何でもいい");
+    expect(out.user).toContain("programming");
+    expect(out.user).toContain("network");
+    expect(out.user).toContain("trade_off");
+    expect(out.user).toContain("senior");
+  });
+
+  it("system は厳密な parser 指示を含む", () => {
+    const out = buildCustomSessionPrompt("X");
+    expect(out.system).toContain("CustomSessionSpec");
+  });
+
+  it("snapshot (代表入力)", () => {
+    const out = buildCustomSessionPrompt(
+      "面接レベルで、TCP の輻輳制御について 5 問、なぜそうなっているかを問う",
+    );
+    expect({ system: out.system, user: out.user }).toMatchSnapshot();
+  });
+});
+
+describe("CustomSessionSpecSchema", () => {
+  it("最小形 (questionCount + difficulty + thinkingStyles)", () => {
+    const spec = CustomSessionSpecSchema.parse({
+      questionCount: 5,
+      thinkingStyles: [],
+      difficulty: { kind: "absolute", level: "junior" },
+      updateMastery: true,
+    });
+    expect(spec.questionCount).toBe(5);
+    expect(spec.updateMastery).toBe(true);
+  });
+
+  it("questionCount 0 は reject", () => {
+    expect(() =>
+      CustomSessionSpecSchema.parse({
+        questionCount: 0,
+        thinkingStyles: [],
+        difficulty: { kind: "absolute", level: "junior" },
+        updateMastery: true,
+      }),
+    ).toThrow();
+  });
+
+  it("未知の thinkingStyle は reject", () => {
+    expect(() =>
+      CustomSessionSpecSchema.parse({
+        questionCount: 5,
+        thinkingStyles: ["unknown_style"],
+        difficulty: { kind: "absolute", level: "junior" },
+        updateMastery: true,
+      }),
+    ).toThrow();
+  });
+
+  it("SCHEMA は strict + additionalProperties: false", () => {
+    expect(CUSTOM_SESSION_JSON_SCHEMA.strict).toBe(true);
+    expect(CUSTOM_SESSION_JSON_SCHEMA.schema.additionalProperties).toBe(false);
+  });
+});
+
+describe("parseCustomSession (LLM DI)", () => {
+  it("面接レベル → senior + trade_off/edge_case", async () => {
+    const caller = vi.fn().mockResolvedValue({
+      questionCount: 5,
+      thinkingStyles: ["trade_off", "edge_case"],
+      difficulty: { kind: "absolute", level: "senior" },
+      updateMastery: true,
+    });
+    const { spec } = await parseCustomSession("面接レベル 5 問", caller);
+    expect(spec.difficulty.level).toBe("senior");
+    expect(spec.thinkingStyles).toContain("trade_off");
+  });
+
+  it("LLM が不正 JSON (未知 style) を返したら Zod 例外を投げる", async () => {
+    const caller = vi.fn().mockResolvedValue({
+      questionCount: 5,
+      thinkingStyles: ["imagination"],
+      difficulty: { kind: "absolute", level: "junior" },
+      updateMastery: true,
+    });
+    await expect(parseCustomSession("X", caller)).rejects.toThrow();
+  });
+
+  it("基礎 → junior + thinkingStyles 空", async () => {
+    const caller = vi.fn().mockResolvedValue({
+      questionCount: 3,
+      thinkingStyles: [],
+      difficulty: { kind: "absolute", level: "junior" },
+      updateMastery: true,
+    });
+    const { spec } = await parseCustomSession("Python の基礎を 3 問", caller);
+    expect(spec.difficulty.level).toBe("junior");
+    expect(spec.thinkingStyles).toEqual([]);
+    expect(spec.questionCount).toBe(3);
+  });
+
+  it("constraints.mustInclude が保持される", async () => {
+    const caller = vi.fn().mockResolvedValue({
+      questionCount: 2,
+      thinkingStyles: [],
+      difficulty: { kind: "absolute", level: "mid" },
+      updateMastery: true,
+      constraints: { mustInclude: ["TLS 1.3"] },
+    });
+    const { spec } = await parseCustomSession("TLS 1.3 を必ず含めて", caller);
+    expect(spec.constraints?.mustInclude).toEqual(["TLS 1.3"]);
+  });
+
+  it("ドメイン指定が伝わる (network)", async () => {
+    const caller = vi.fn().mockResolvedValue({
+      questionCount: 5,
+      thinkingStyles: [],
+      difficulty: { kind: "absolute", level: "junior" },
+      updateMastery: true,
+      domains: ["network"],
+    });
+    const { spec } = await parseCustomSession("network 5 問", caller);
+    expect(spec.domains).toEqual(["network"]);
+  });
+});
