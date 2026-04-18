@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "@/db/client";
@@ -102,6 +102,13 @@ export const sessionRouter = router({
       if (session.questionCount >= target) {
         return { done: true as const };
       }
+      // pendingQuestionId がある = 直前の問題を未回答。OpenAI コスト保護のため連発を拒否
+      if (spec.pendingQuestionId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "submit the current pending question before fetching the next one",
+        });
+      }
 
       const concept = input.conceptId ? { id: input.conceptId } : await pickConceptForDrill();
       const { question } = await generateMcq({
@@ -162,14 +169,27 @@ export const sessionRouter = router({
         reasonGiven: input.reasonGiven,
       });
 
-      await getDb()
+      // 二重送信対策: sql で原子インクリメント + pendingQuestionId 一致 + finishedAt is null の
+      // 条件下でのみ 1 行更新。並行 submit で losing race になった側は 0 行更新で素通り
+      // (既に 1 度カウントされているので attempts テーブルの一意性で十分)
+      const updated = await getDb()
         .update(sessions)
         .set({
-          questionCount: session.questionCount + 1,
-          correctCount: session.correctCount + (result.correct ? 1 : 0),
+          questionCount: sql`${sessions.questionCount} + 1`,
+          correctCount: sql`${sessions.correctCount} + ${result.correct ? 1 : 0}`,
           spec: { ...spec, pendingQuestionId: null },
         })
-        .where(eq(sessions.id, session.id));
+        .where(
+          and(
+            eq(sessions.id, session.id),
+            sql`(${sessions.spec}->>'pendingQuestionId') = ${input.questionId}`,
+            isNull(sessions.finishedAt),
+          ),
+        )
+        .returning({ id: sessions.id });
+      if (updated.length === 0) {
+        // 競合 (同じ問題への並行 submit) は先着が既に処理済み。カウンタは進まずに終了
+      }
 
       return {
         attemptId: result.attempt.id,

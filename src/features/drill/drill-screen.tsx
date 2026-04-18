@@ -76,6 +76,8 @@ export function DrillScreen() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      // キーリピート / 既に通信中の発火を全て無視 (submit/next の二重発火抑止)
+      if (e.repeat || pending) return;
       if (phase === "asking" && question) {
         const n = Number.parseInt(e.key, 10);
         if (n >= 1 && n <= options.length) {
@@ -92,7 +94,16 @@ export function DrillScreen() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [phase, question, options.length, selectedIndex, handleSubmit, handleNext, setSelected]);
+  }, [
+    phase,
+    question,
+    options.length,
+    selectedIndex,
+    pending,
+    handleSubmit,
+    handleNext,
+    setSelected,
+  ]);
 
   if (phase === "idle") {
     return (
