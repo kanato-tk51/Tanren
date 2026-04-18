@@ -63,6 +63,20 @@ describe("seed file", () => {
     expect(() => SeedFileSchema.parse(bad)).toThrow(/domain/);
   });
 
+  it("subdomain 未指定の seed は Zod で reject (3 階層必須)", () => {
+    const bad = {
+      concepts: [
+        {
+          id: "network.http.status_codes",
+          name: "subdomain 欠落サンプル",
+          domain: "network",
+          difficulty_levels: ["beginner"],
+        },
+      ],
+    };
+    expect(() => SeedFileSchema.parse(bad)).toThrow(/subdomain/i);
+  });
+
   it("id の subdomain prefix と subdomain フィールドが食い違う seed も reject", () => {
     const bad = {
       concepts: [

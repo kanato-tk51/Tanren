@@ -7,7 +7,7 @@ export function toConceptRow(seed: SeedConcept): NewConcept {
   return {
     id: seed.id,
     domainId: seed.domain,
-    subdomainId: seed.subdomain ?? null,
+    subdomainId: seed.subdomain,
     name: seed.name,
     description: seed.description ?? null,
     prereqs: seed.prereqs,

@@ -14,7 +14,8 @@ export const SeedConceptSchema = z
     name: z.string().min(1),
     description: z.string().optional(),
     domain: z.enum(DOMAIN_IDS),
-    subdomain: z.string().min(1).optional(),
+    // docs/02-learning-system.md §2.1.4: id は必ず domain.subdomain.name の 3 階層
+    subdomain: z.string().min(1),
     prereqs: z.array(z.string()).default([]),
     tags: z.array(z.string()).default([]),
     difficulty_levels: z.array(z.enum(DIFFICULTY_LEVELS)).default([]),
@@ -30,7 +31,7 @@ export const SeedConceptSchema = z
         message: `id の domain prefix "${domainFromId}" が domain フィールド "${value.domain}" と一致しない`,
       });
     }
-    if (value.subdomain && subdomainFromId !== value.subdomain) {
+    if (subdomainFromId !== value.subdomain) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["id"],
