@@ -1,6 +1,6 @@
 # MVP 初期 10 concept (docs/10-taxonomy-seed.md から抜粋)
-# Tier 1 の 6 ドメインから満遍なく拾い、依存関係 (prereqs) が完結する最小集合にしている。
-# 追加は順次 docs/10-taxonomy-seed.md を更新してからこのファイルに写す。
+# 各フィールド (name / difficulty_levels / tags / prereqs) は docs/10-taxonomy-seed.md を
+# 真実の源として同期する。追加・改名は必ず同一 PR で docs 側も更新する。
 
 concepts:
   # programming (3)
@@ -27,7 +27,6 @@ concepts:
     description: 非同期合成の落とし穴 (未 await・エラー伝播・並列化)
     prereqs: [programming.async.event_loop]
     difficulty_levels: [junior, mid]
-    tags: [concurrency, javascript]
 
   # dsa (2)
   - id: dsa.complexity.big_o
@@ -36,33 +35,29 @@ concepts:
     subdomain: complexity
     description: 入力サイズに対する計算量の漸近的記述
     difficulty_levels: [beginner, junior]
-    tags: [analysis]
 
   - id: dsa.structures.hash_map
-    name: ハッシュマップ
+    name: ハッシュマップ (衝突解決含む)
     domain: dsa
     subdomain: structures
     description: 平均 O(1) のキー探索、衝突解決と負荷率
-    prereqs: [dsa.complexity.big_o]
-    difficulty_levels: [beginner, junior, mid]
-    tags: [hash, collisions]
+    difficulty_levels: [junior, mid]
+    tags: [hashing]
 
   # network (2)
   - id: network.http.methods_idempotency
-    name: HTTP メソッドと冪等性
+    name: HTTP メソッドとベキ等性
     domain: network
     subdomain: http
     description: GET/POST/PUT/DELETE/PATCH の意味と安全性・冪等性
-    difficulty_levels: [beginner, junior]
-    tags: [rest, idempotency]
+    difficulty_levels: [junior, mid]
 
   - id: network.http.status_codes
-    name: HTTP ステータスコード
+    name: ステータスコードの使い分け
     domain: network
     subdomain: http
     description: 2xx/3xx/4xx/5xx の分類と代表的な落とし穴 (301 vs 308 など)
-    difficulty_levels: [beginner, junior]
-    tags: [rest]
+    difficulty_levels: [beginner, junior, mid]
 
   # db (1)
   - id: db.rdb.btree_index
@@ -70,17 +65,15 @@ concepts:
     domain: db
     subdomain: rdb
     description: B-tree インデックスの仕組みと、どのクエリを高速化できるか
-    difficulty_levels: [junior, mid]
-    tags: [performance]
+    difficulty_levels: [junior, mid, senior]
 
   # tools (1)
   - id: tools.git.branching_merging
-    name: ブランチ運用とマージ戦略
+    name: ブランチ戦略と merge / rebase
     domain: tools
     subdomain: git
     description: 共有ブランチでのマージ / rebase の使い分け、チームでの履歴設計
     difficulty_levels: [junior, mid]
-    tags: [git]
 
   # frontend (1)
   - id: frontend.react.hooks_rules

@@ -37,7 +37,7 @@ describe("seed file", () => {
     expect(row.id).toBe("network.http.methods_idempotency");
     expect(row.domainId).toBe("network");
     expect(row.subdomainId).toBe("http");
-    expect(row.difficultyLevels).toEqual(["beginner", "junior"]);
+    expect(row.difficultyLevels).toEqual(["junior", "mid"]);
     expect(row.prereqs).toEqual([]);
   });
 
@@ -63,7 +63,7 @@ describe("seed file", () => {
     expect(() => SeedFileSchema.parse(bad)).toThrow(/domain/);
   });
 
-  it("difficulty_levels が空配列の seed は reject", () => {
+  it("difficulty_levels が空配列の seed は reject (エラーメッセージに difficulty_levels を含む)", () => {
     const bad = {
       concepts: [
         {
@@ -75,10 +75,10 @@ describe("seed file", () => {
         },
       ],
     };
-    expect(() => SeedFileSchema.parse(bad)).toThrow();
+    expect(() => SeedFileSchema.parse(bad)).toThrow(/difficulty_levels/);
   });
 
-  it("difficulty_levels を省略した seed も reject", () => {
+  it("difficulty_levels を省略した seed も reject (エラーメッセージに difficulty_levels を含む)", () => {
     const bad = {
       concepts: [
         {
@@ -89,7 +89,7 @@ describe("seed file", () => {
         },
       ],
     };
-    expect(() => SeedFileSchema.parse(bad)).toThrow();
+    expect(() => SeedFileSchema.parse(bad)).toThrow(/difficulty_levels/);
   });
 
   it("subdomain 未指定の seed は Zod で reject (3 階層必須)", () => {

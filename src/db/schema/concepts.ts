@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { check, index, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 import type { DifficultyLevel, DomainId } from "./_constants";
 
@@ -29,6 +29,11 @@ export const concepts = pgTable(
   (table) => [
     index("idx_concepts_domain").on(table.domainId),
     index("idx_concepts_tags").using("gin", table.tags),
+    // difficulty_levels は 1 件以上を DB 側でも強制 (Zod/YAML と三重整合)
+    check(
+      "concepts_difficulty_levels_nonempty_chk",
+      sql`jsonb_typeof(${table.difficultyLevels}) = 'array' AND jsonb_array_length(${table.difficultyLevels}) >= 1`,
+    ),
   ],
 );
 

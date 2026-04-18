@@ -72,13 +72,16 @@ CREATE TABLE concepts (
   description TEXT,
   prereqs JSONB DEFAULT '[]'::jsonb,
   tags JSONB DEFAULT '[]'::jsonb,
-  difficulty_levels JSONB DEFAULT '[]'::jsonb,  -- 6段階のサブセット
+  difficulty_levels JSONB NOT NULL DEFAULT '[]'::jsonb,  -- 6段階のサブセット (下の CHECK で 1 件以上強制)
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_concepts_domain ON concepts(domain_id);
 CREATE INDEX idx_concepts_tags ON concepts USING GIN (tags);
+-- 3 階層固定ルール + 出題可能性の DB 側不変条件
+ALTER TABLE concepts ADD CONSTRAINT concepts_difficulty_levels_nonempty_chk
+  CHECK (jsonb_typeof(difficulty_levels) = 'array' AND jsonb_array_length(difficulty_levels) >= 1);
 
 -- ユーザー (個人用途のため事実上 1 行のみ)
 CREATE TABLE users (
