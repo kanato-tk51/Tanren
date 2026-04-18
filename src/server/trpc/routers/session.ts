@@ -14,6 +14,7 @@ import {
 } from "@/db/schema";
 import { generateMcq } from "@/server/generator/mcq";
 import { gradeAttempt } from "@/server/grader";
+import { selectDailyCandidates } from "@/server/scheduler/daily";
 import { STREAK_FOR_PROMOTION, computePromotion } from "@/server/scheduler/promotion";
 
 import { protectedProcedure, router } from "../init";
@@ -44,13 +45,18 @@ async function loadSession(sessionId: string, userId: string) {
   return row;
 }
 
-async function pickConceptForDrill() {
-  const rows = await getDb().select().from(concepts).limit(1);
-  const row = rows[0];
-  if (!row) {
-    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "no seeded concept" });
-  }
-  return row;
+async function pickConceptForDrill(userId: string) {
+  // Daily Drill の優先度アルゴリズム (docs/06 §6.4) に委譲。
+  // due / blind_spot のどちらも空 (= mastered な concept が無く、かつ prereqs が空の concept も無い)
+  // だと候補が 0 件になる。MVP の seed (10 concept) では prereqs なし concept が複数あり bootstrap 時も候補が埋まるが、
+  // 念のため PRECONDITION_FAILED でクライアントに状況を知らせる。
+  const candidates = await selectDailyCandidates({ userId, count: 1 });
+  if (candidates[0]) return candidates[0].concept;
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message:
+      "no drill candidate: seed にある concept が 0 件か、全 concept の prereqs が未充足。seed を確認してください",
+  });
 }
 
 async function loadConcept(conceptId: string) {
@@ -145,7 +151,7 @@ export const sessionRouter = router({
       try {
         const conceptRow = input.conceptId
           ? await loadConcept(input.conceptId)
-          : await pickConceptForDrill();
+          : await pickConceptForDrill(ctx.user.id);
 
         // 直近 STREAK_FOR_PROMOTION 件の同 concept の attempts を見て、3 連続正解なら次出題を 1 段昇格
         const recent = await getDb()
