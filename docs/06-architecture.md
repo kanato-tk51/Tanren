@@ -425,7 +425,7 @@ function priority(concept: Concept, mastery: Mastery): number {
 | State             | **TanStack Query + Zustand**                                   | サーバー状態 + UI 状態                             |
 | URL 状態          | **nuqs**                                                       | フィルタなどの URL 同期                            |
 | i18n              | 日本語のみ                                                     | スコープ絞る                                       |
-| PWA               | **Serwist**                                                    | Service Worker 統合                                |
+| PWA               | **自作 Service Worker** (`public/sw.js`)                       | Serwist / next-pwa は未導入 (依存削減のため)       |
 | Deploy            | **Vercel Hobby**                                               | Next.js と Neon の連携が公式                       |
 | 監視              | **Sentry (Free tier)**                                         | エラー追跡                                         |
 | テスト            | **Vitest**                                                     | unit/integration                                   |
@@ -507,44 +507,54 @@ NEXT_PUBLIC_POSTHOG_HOST=
 Tanren/
 ├── docs/                          # 設計ドキュメント (このフォルダ)
 ├── src/
-│   ├── app/                       # Next.js App Router
-│   │   ├── (auth)/                # ログイン前
-│   │   ├── (app)/                 # ログイン後
-│   │   │   ├── page.tsx           # /
-│   │   │   ├── drill/
-│   │   │   ├── deep/
-│   │   │   ├── custom/
-│   │   │   └── insights/
+│   ├── app/                       # Next.js App Router (flat 構成、route group 未使用)
+│   │   ├── layout.tsx             # RootLayout + SW register + nuqs + trpc
+│   │   ├── page.tsx               # /
+│   │   ├── login/                 # /login (Passkey)
+│   │   ├── drill/                 # /drill
+│   │   ├── custom/                # /custom
+│   │   ├── insights/              # /insights (Dashboard)
+│   │   │   ├── history/           # /insights/history
+│   │   │   └── search/            # /insights/search
+│   │   ├── review/                # /review (Mistake Review)
 │   │   └── api/
-│   │       └── trpc/[trpc]/
+│   │       ├── auth/              # /api/auth/{register,authenticate,logout,dev-login}
+│   │       └── trpc/[trpc]/       # tRPC fetch handler
 │   ├── server/
 │   │   ├── trpc/                  # tRPC ルータ
-│   │   ├── scheduler/             # FSRS ロジック
+│   │   ├── auth/                  # Passkey (WebAuthn) セッション管理
+│   │   ├── scheduler/             # FSRS ロジック + daily / review 候補選定
 │   │   ├── generator/             # 問題生成
-│   │   ├── grader/                # 採点
-│   │   ├── parser/                # NL パース
-│   │   └── insights/              # 集計クエリ
+│   │   ├── grader/                # 採点 + rebut + 誤概念抽出
+│   │   ├── parser/                # NL パース (Custom Session)
+│   │   └── insights/              # 集計クエリ (overview / history / search)
 │   ├── db/
 │   │   ├── schema/                # Drizzle スキーマ
 │   │   ├── seed/                  # 知識ツリー YAML
 │   │   └── client.ts
 │   ├── features/                  # フィーチャーモジュール
-│   │   ├── drill/
-│   │   ├── custom-session/
-│   │   ├── insights/
-│   │   └── ...
+│   │   ├── auth/                  # /login の Passkey 登録・認証 UI
+│   │   ├── home/                  # / の Home Screen
+│   │   ├── drill/                 # 出題 UI + rebut / copy-for-llm
+│   │   ├── custom/                # Custom Session 入力フロー
+│   │   ├── insights/              # Dashboard / History / Search
+│   │   ├── review/                # Mistake Review 入口
+│   │   └── pwa/                   # Service Worker 登録 (issue #24)
 │   ├── components/ui/             # shadcn/ui
-│   ├── lib/                       # 共通ユーティリティ
-│   │   ├── anthropic.ts
-│   │   ├── fsrs.ts
-│   │   └── ...
-│   └── messages/                  # i18n
+│   └── lib/                       # 共通ユーティリティ
+│       ├── openai/                # OpenAI client / model 定数 (CLAUDE.md §4.6)
+│       ├── share/                 # copy-for-llm 整形
+│       └── trpc/                  # tRPC client
 ├── prompts/                       # LLM プロンプトテンプレ
 │   ├── generation/
 │   ├── grading/
 │   └── parsing/
 ├── public/                        # 静的ファイル
-├── service-worker/                # PWA Service Worker
+│   ├── manifest.webmanifest       # PWA manifest (issue #24)
+│   ├── sw.js                      # PWA Service Worker (自作、Serwist 非採用)
+│   ├── icon-192.png               # PWA アイコン (standard + maskable)
+│   ├── icon-512.png               # PWA アイコン (standard + maskable)
+│   └── apple-icon.png             # iOS apple-touch-icon (180x180)
 ├── drizzle/                       # マイグレーション
 ├── package.json
 ├── next.config.ts

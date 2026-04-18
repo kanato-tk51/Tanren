@@ -13,7 +13,10 @@ pre-commit:
 
     lint:
       glob: "*.{ts,tsx,js,jsx}"
-      run: pnpm eslint --fix --max-warnings=0 {staged_files}
+      # --no-warn-ignored: public/ など ESLint 無視対象 (eslint.config.ts の
+      # globalIgnores) を staged で渡しても "file ignored" warning にせず skip。
+      # max-warnings=0 と両立させるために必要。
+      run: pnpm eslint --fix --max-warnings=0 --no-warn-ignored {staged_files}
       stage_fixed: true
 
     typecheck:
