@@ -1,8 +1,11 @@
 # custom-session.v1
 
 Custom Session の自然言語リクエストを `CustomSessionSpec` JSON に変換するパーサ (docs/04 §4.4)。
-OpenAI gpt-5-mini + Structured Outputs で、schema は `src/server/parser/schema.ts` の
-`CUSTOM_SESSION_JSON_SCHEMA` が真実の源。
+OpenAI gpt-5-mini + Structured Outputs を使う。
+
+**真実の源は Zod schema (`src/server/parser/schema.ts` の `CustomSessionSpecSchema`)。**
+`CUSTOM_SESSION_JSON_SCHEMA` (同ファイル) は OpenAI Structured Outputs 用の手動同期ミラーで、
+Zod の制約 (optional / minItems / minLength / additionalProperties:false) を写す。
 
 固定の Output requirements を user 冒頭に、可変の raw request を末尾に置く (CLAUDE.md §4.5)。
 
