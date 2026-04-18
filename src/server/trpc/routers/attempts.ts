@@ -1,10 +1,11 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "@/db/client";
 import { attempts, questions, type RebuttalRecord } from "@/db/schema";
 import { gradeRebut } from "@/server/grader/rebut";
+import { reapplyMasteryAfterRebut } from "@/server/scheduler/update-mastery";
 
 import { protectedProcedure, router } from "../init";
 
@@ -15,6 +16,9 @@ export const attemptsRouter = router({
   /**
    * 採点への反論 (issue #15, R1 対策)。
    * 元の判定を rebuttal フィールドに保存し、再採点結果で correct / score / feedback を上書きする。
+   *
+   * 並行 2 重 rebut 対策として最終 UPDATE の WHERE に `rebuttal IS NULL` を加えている。
+   * losing race 側は 0 行更新になり BAD_REQUEST を返す。
    */
   rebut: protectedProcedure
     .input(
@@ -75,7 +79,8 @@ export const attemptsRouter = router({
         at: new Date().toISOString(),
       };
 
-      await db
+      // race 対策: WHERE に `rebuttal IS NULL` を加えて losing race 側は 0 行更新にする
+      const updated = await db
         .update(attempts)
         .set({
           correct: graded.correct,
@@ -86,7 +91,28 @@ export const attemptsRouter = router({
           promptVersion: graded.promptVersion,
           rebuttal,
         })
-        .where(eq(attempts.id, prev.id));
+        .where(
+          and(
+            eq(attempts.id, prev.id),
+            eq(attempts.userId, ctx.user.id),
+            isNull(attempts.rebuttal),
+          ),
+        )
+        .returning({ id: attempts.id });
+      if (updated.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "この attempt には既に反論が提出されています",
+        });
+      }
+
+      // 採点結果が変わった場合は mastery も追随させる (lapseCount delta + FSRS 再適用)
+      await reapplyMasteryAfterRebut({
+        userId: ctx.user.id,
+        conceptId: prev.conceptId,
+        previousScore: prev.score,
+        newScore: graded.score,
+      });
 
       return {
         attemptId: prev.id,

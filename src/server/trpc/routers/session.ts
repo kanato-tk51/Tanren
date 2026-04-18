@@ -7,7 +7,6 @@ import {
   attempts,
   concepts,
   DIFFICULTY_LEVELS,
-  questions,
   SESSION_KINDS,
   sessions,
   THINKING_STYLES,
@@ -237,13 +236,6 @@ export const sessionRouter = router({
         reasonGiven: input.reasonGiven,
       });
 
-      // 反論 (rebut) UI 出し分けのため question.type を同梱して返す
-      const qType = await getDb()
-        .select({ type: questions.type })
-        .from(questions)
-        .where(eq(questions.id, input.questionId))
-        .limit(1);
-
       // 二重送信対策: sql で原子インクリメント + pendingQuestionId 一致 + finishedAt is null の
       // 条件下でのみ 1 行更新。並行 submit で losing race になった側は 0 行更新で素通り
       // (既に 1 度カウントされているので attempts テーブルの一意性で十分)
@@ -271,7 +263,7 @@ export const sessionRouter = router({
         correct: result.correct,
         score: result.score,
         feedback: result.feedback,
-        questionType: qType[0]?.type ?? null,
+        questionType: result.questionType,
       };
     }),
 
