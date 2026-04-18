@@ -507,38 +507,39 @@ NEXT_PUBLIC_POSTHOG_HOST=
 Tanren/
 ├── docs/                          # 設計ドキュメント (このフォルダ)
 ├── src/
-│   ├── app/                       # Next.js App Router
-│   │   ├── (auth)/                # ログイン前
-│   │   ├── (app)/                 # ログイン後
-│   │   │   ├── page.tsx           # /
-│   │   │   ├── drill/
-│   │   │   ├── deep/
-│   │   │   ├── custom/
-│   │   │   └── insights/
-│   │   └── api/
-│   │       └── trpc/[trpc]/
+│   ├── app/                       # Next.js App Router (flat 構成、route group 未使用)
+│   │   ├── layout.tsx             # RootLayout + SW register + nuqs + trpc
+│   │   ├── page.tsx               # /
+│   │   ├── login/                 # /login (Passkey)
+│   │   ├── drill/                 # /drill
+│   │   ├── custom/                # /custom
+│   │   ├── insights/              # /insights (Dashboard)
+│   │   │   ├── history/           # /insights/history
+│   │   │   └── search/            # /insights/search
+│   │   ├── review/                # /review (Mistake Review)
+│   │   └── api/trpc/[trpc]/       # tRPC fetch handler
 │   ├── server/
 │   │   ├── trpc/                  # tRPC ルータ
-│   │   ├── scheduler/             # FSRS ロジック
+│   │   ├── scheduler/             # FSRS ロジック + daily / review 候補選定
 │   │   ├── generator/             # 問題生成
-│   │   ├── grader/                # 採点
-│   │   ├── parser/                # NL パース
-│   │   └── insights/              # 集計クエリ
+│   │   ├── grader/                # 採点 + rebut + 誤概念抽出
+│   │   ├── parser/                # NL パース (Custom Session)
+│   │   └── insights/              # 集計クエリ (overview / history / search)
 │   ├── db/
 │   │   ├── schema/                # Drizzle スキーマ
 │   │   ├── seed/                  # 知識ツリー YAML
 │   │   └── client.ts
 │   ├── features/                  # フィーチャーモジュール
-│   │   ├── drill/
-│   │   ├── custom-session/
-│   │   ├── insights/
-│   │   └── ...
+│   │   ├── drill/                 # 出題 UI + rebut / copy-for-llm
+│   │   ├── custom/                # Custom Session 入力フロー
+│   │   ├── insights/              # Dashboard / History / Search
+│   │   ├── review/                # Mistake Review 入口
+│   │   └── pwa/                   # Service Worker 登録 (issue #24)
 │   ├── components/ui/             # shadcn/ui
-│   ├── lib/                       # 共通ユーティリティ
-│   │   ├── anthropic.ts
-│   │   ├── fsrs.ts
-│   │   └── ...
-│   └── messages/                  # i18n
+│   └── lib/                       # 共通ユーティリティ
+│       ├── openai/                # OpenAI client / model 定数 (CLAUDE.md §4.6)
+│       ├── share/                 # copy-for-llm 整形
+│       └── trpc/                  # tRPC client
 ├── prompts/                       # LLM プロンプトテンプレ
 │   ├── generation/
 │   ├── grading/
