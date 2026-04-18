@@ -268,7 +268,23 @@ mastery が 80% を超えたら、**その concept を prereq に持つ上位概
 | **Daily Drill**    | `/drill`        | 今日の復習 (10-15 分)、`next_review <= now` の concept を FSRS 優先度順に出題 |
 | **Deep Dive**      | `/deep/:domain` | 1ドメインを集中的に。指定ドメイン内の concept を難易度順に連続出題            |
 | **Custom Session** | `/custom`       | ユーザー指定 (詳細は `04-custom-sessions.md`)                                 |
-| **Mistake Review** | `/review`       | 誤答だけを再出題。直近 N 日の incorrect attempt から                          |
+| **Mistake Review** | `/review`       | 誤答だけを再出題。直近 14 日の incorrect attempt から 10-15 問                |
+
+### 2.6.0. Mistake Review のアルゴリズム (issue #23)
+
+真実の源は `src/server/scheduler/review.ts` の `selectReviewCandidates`、および
+`src/server/trpc/routers/session.ts` の `session.start({kind:'review'})` 分岐。
+
+1. `attempts` から直近 `REVIEW_DEFAULT_DAYS` (14) 日の `correct=false` を対象に、
+   `GROUP BY concept_id` + `max(created_at)` で concept ごとに集約。最新誤答順に
+   上位 `REVIEW_MAX_COUNT` (15) 件の concept を取る。
+2. `session.start` は `targetCount` を `REVIEW_DEFAULT_COUNT` (10) 以上、
+   `REVIEW_MAX_COUNT` (15) 以下に clamp。候補が 10 件未満でも `targetCount` は
+   下限 10 を維持する。
+3. `session.next` は `reviewConceptIds[questionCount % len]` で concept を
+   ラウンドロビン pick。候補 < `targetCount` の場合、同じ concept が複数ターンに
+   わたって別問題 (generateMcq は毎回新規生成 or 異なる cache entry) で出題される。
+4. 候補 0 件なら `PRECONDITION_FAILED` で返し session row は作らない。
 
 ### 2.6.1. Daily Drill の選択アルゴリズム
 
