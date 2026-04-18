@@ -349,7 +349,8 @@ Apple 用 `public/apple-icon.png` (180x180)。`maskable` と通常表示を
   - 先読みされた問題を解く (Phase 5+ 予定)
   - Insights Dashboard のオフライン表示 (Phase 5+ 予定)
 
-Phase 5+ (issue #40) で上記の「できる」リストを実装する。現 MVP は
+Phase 5+ (issue #40) で上記の「できない」リスト (HTML / API の offline 対応、
+先読み問題の offline 実行、Insights のオフライン表示) を実装する。現 MVP は
 「PWA としてインストール可能」「起動時の静的資産を cache-first で高速化」までが狙い。
 
 ### 7.5.5. Web Push (Phase 5+ 予定)
