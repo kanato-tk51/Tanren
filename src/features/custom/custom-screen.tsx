@@ -29,9 +29,12 @@ type Phase =
  * 2. 違うと判断したら raw を修正して再パース (MVP は編集フォームなし)
  * 3. 開始ボタン → session.start({kind:"custom", spec}) → useDrillStore に流し込み → DrillScreen
  */
-export function CustomScreen() {
+// 初期 raw はマウント時に useState の初期値として注入する。
+// Insights Dashboard 等から ?prefill=... で来たとき、自動 parse はせず、
+// ユーザーに内容を確認してもらう (プレビューフローを尊重)。
+export function CustomScreen({ initialRaw }: { initialRaw?: string } = {}) {
   const [phase, setPhase] = useState<Phase>({ kind: "input" });
-  const [raw, setRaw] = useState("");
+  const [raw, setRaw] = useState(initialRaw ?? "");
   const [error, setError] = useState<string | null>(null);
 
   const parseMutation = trpc.custom.parse.useMutation();

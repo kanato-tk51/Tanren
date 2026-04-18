@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import { attempts, concepts, mastery, type Concept, type Mastery } from "@/db/schema";
@@ -9,10 +9,10 @@ export type OverviewItem = {
   domainId: string;
   subdomainId: string;
   masteryPct: number;
-  /** 関連 attempts 数 (weakest 表示で「○問中 ○問ミス」に使う) */
+  /** この concept の全期間 attempts 総数 */
   attemptCount: number;
-  /** 直近誤答数 (最終20件内) */
-  recentWrongCount?: number;
+  /** 全期間の誤答数 (weakest で「N 問中 M 問ミス」に使う、両方とも同じ窓=全期間) */
+  wrongCount: number;
   /** 最終レビュー (decaying に使う) */
   lastReview: Date | null;
 };
@@ -43,37 +43,26 @@ export async function fetchInsightsOverview(userId: string): Promise<InsightsOve
   const db = getDb();
   const now = new Date();
 
-  // concepts × mastery を user 軸で LEFT JOIN して 1 行 1 concept に正規化
+  // concepts / mastery / attempts を user 軸でメモリ上 join (3 クエリを JS 側で合成)。
   const conceptRows: Concept[] = await db.select().from(concepts);
   const masteryRows: Mastery[] = await db.select().from(mastery).where(eq(mastery.userId, userId));
 
-  // attempts の concept 別カウント (全期間)
+  // attempts の concept 別カウント (全期間の total と wrong を一括集計)
+  // weakest 表示 (「N 問中 M 問ミス」) が同じ時間窓になるよう attemptCount と wrongCount は
+  // どちらも「全期間」で揃える (Round 1 指摘: 時間窓混在を避ける)。
   const attemptCountRows = await db
     .select({
       conceptId: attempts.conceptId,
       total: sql<number>`count(*)::int`.as("total"),
+      wrong: sql<number>`sum(case when ${attempts.correct} = false then 1 else 0 end)::int`.as(
+        "wrong",
+      ),
     })
     .from(attempts)
     .where(eq(attempts.userId, userId))
     .groupBy(attempts.conceptId);
   const attemptCountByConcept = new Map(attemptCountRows.map((r) => [r.conceptId, r.total]));
-
-  // 直近 20 件の誤答を concept 別に数える (weakest の「8 問中 5 問ミス」など)
-  const recentWrongRows = await db
-    .select({
-      conceptId: attempts.conceptId,
-      correct: attempts.correct,
-    })
-    .from(attempts)
-    .where(and(eq(attempts.userId, userId)))
-    .orderBy(desc(attempts.createdAt))
-    .limit(200);
-  const recentWrongByConcept = new Map<string, number>();
-  for (const r of recentWrongRows) {
-    if (r.correct === false) {
-      recentWrongByConcept.set(r.conceptId, (recentWrongByConcept.get(r.conceptId) ?? 0) + 1);
-    }
-  }
+  const wrongCountByConcept = new Map(attemptCountRows.map((r) => [r.conceptId, r.wrong ?? 0]));
 
   const masteryByConcept = new Map(masteryRows.map((m) => [m.conceptId, m]));
   const masteredIds = new Set(masteryRows.filter((m) => m.mastered).map((m) => m.conceptId));
@@ -87,34 +76,43 @@ export async function fetchInsightsOverview(userId: string): Promise<InsightsOve
       subdomainId: c.subdomainId,
       masteryPct: m?.masteryPct ?? 0,
       attemptCount: attemptCountByConcept.get(c.id) ?? 0,
-      recentWrongCount: recentWrongByConcept.get(c.id) ?? 0,
+      wrongCount: wrongCountByConcept.get(c.id) ?? 0,
       lastReview: m?.lastReview ?? null,
     };
   });
 
-  // Strongest: mastered=true または masteryPct 高い順に attempts 1 件以上の上位 3
+  // Strongest: attempts 1 件以上の concept を masteryPct 降順、同率なら conceptId で安定ソート
   const strongest = items
     .filter((i) => i.attemptCount > 0)
-    .sort((a, b) => b.masteryPct - a.masteryPct)
+    .sort((a, b) => b.masteryPct - a.masteryPct || a.conceptId.localeCompare(b.conceptId))
     .slice(0, TOP_N);
 
-  // Weakest: attempts >= 5 かつ masteryPct < 0.5 の中で masteryPct 昇順 (= 弱い順) 上位 3
+  // Weakest: attempts >= 5 かつ masteryPct < 0.5 の中で masteryPct 昇順 (= 弱い順) 上位 3。
+  // 同率は conceptId 昇順で安定化。
   const weakest = items
     .filter(
       (i) => i.attemptCount >= WEAKEST_MIN_ATTEMPTS && i.masteryPct < WEAKEST_MASTERY_THRESHOLD,
     )
-    .sort((a, b) => a.masteryPct - b.masteryPct)
+    .sort((a, b) => a.masteryPct - b.masteryPct || a.conceptId.localeCompare(b.conceptId))
     .slice(0, TOP_N);
 
-  // Blind spots: attempts=0 かつ prereqs 全て mastered (daily と同じ判定)
+  // Blind spots: attempts=0 かつ prereqs 全て mastered (daily と同じ判定)。
+  // domain → subdomain → id の順で安定ソートして表示の再現性を確保。
+  const conceptById = new Map(conceptRows.map((c) => [c.id, c]));
   const blindSpots = items
     .filter((i) => {
       if (i.attemptCount !== 0) return false;
-      const concept = conceptRows.find((c) => c.id === i.conceptId);
+      const concept = conceptById.get(i.conceptId);
       if (!concept) return false;
       const prereqs = concept.prereqs ?? [];
       return prereqs.length === 0 || prereqs.every((pid) => masteredIds.has(pid));
     })
+    .sort(
+      (a, b) =>
+        a.domainId.localeCompare(b.domainId) ||
+        a.subdomainId.localeCompare(b.subdomainId) ||
+        a.conceptId.localeCompare(b.conceptId),
+    )
     .slice(0, TOP_N);
 
   // Decaying: mastered=false かつ最終レビューが DECAYING_DAYS 日以上前

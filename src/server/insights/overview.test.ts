@@ -8,26 +8,18 @@ const fixtures: {
   concepts: unknown[];
   mastery: unknown[];
   attemptsGroup: unknown[];
-  attemptsRecent: unknown[];
 } = {
   concepts: [],
   mastery: [],
   attemptsGroup: [],
-  attemptsRecent: [],
 };
 
 vi.mock("@/db/client", () => {
   // 呼び出し順序で返り値を切り替える: 1. select().from(concepts) → conceptRows
   // 2. select().from(mastery).where() → masteryRows
-  // 3. select({conceptId, total}).from(attempts).where().groupBy() → attemptsGroup
-  // 4. select({conceptId, correct}).from(attempts).where().orderBy().limit() → attemptsRecent
+  // 3. select({conceptId, total, wrong}).from(attempts).where().groupBy() → attemptsGroup
   let callIdx = 0;
-  const queue = [
-    () => fixtures.concepts,
-    () => fixtures.mastery,
-    () => fixtures.attemptsGroup,
-    () => fixtures.attemptsRecent,
-  ];
+  const queue = [() => fixtures.concepts, () => fixtures.mastery, () => fixtures.attemptsGroup];
   // drizzle builder をイミュータブルに chain したい。テスト簡略化のため then を返す。
   function makeBuilder(): unknown {
     const b = {
@@ -63,7 +55,6 @@ beforeEach(async () => {
   fixtures.concepts = [];
   fixtures.mastery = [];
   fixtures.attemptsGroup = [];
-  fixtures.attemptsRecent = [];
 });
 
 describe("fetchInsightsOverview (集計スナップショット)", () => {
@@ -97,7 +88,7 @@ describe("fetchInsightsOverview (集計スナップショット)", () => {
       { conceptId: "c2", total: 8 },
       { conceptId: "c3", total: 12 },
     ];
-    fixtures.attemptsRecent = [];
+
     const out = await fetchInsightsOverview("u-1");
     expect(out.strongest.map((s) => s.conceptId)).toEqual(["c2", "c1", "c3"]);
   });
@@ -120,7 +111,7 @@ describe("fetchInsightsOverview (集計スナップショット)", () => {
       { conceptId: "c2", total: 8 },
       { conceptId: "c3", total: 3 },
     ];
-    fixtures.attemptsRecent = [];
+
     const out = await fetchInsightsOverview("u-1");
     expect(out.weakest.map((w) => w.conceptId)).toEqual(["c2", "c1"]);
   });
@@ -135,7 +126,7 @@ describe("fetchInsightsOverview (集計スナップショット)", () => {
       { conceptId: "c1", userId: "u-1", mastered: true, masteryPct: 0.9, lastReview: new Date() },
     ];
     fixtures.attemptsGroup = [{ conceptId: "c1", total: 10 }];
-    fixtures.attemptsRecent = [];
+
     const out = await fetchInsightsOverview("u-1");
     expect(out.blindSpots.map((b) => b.conceptId)).toEqual(["c2"]);
     // c3 は prereq (c2) が未 mastered なので入らない
@@ -160,7 +151,7 @@ describe("fetchInsightsOverview (集計スナップショット)", () => {
       { conceptId: "fresh", total: 3 },
       { conceptId: "no-review", total: 3 },
     ];
-    fixtures.attemptsRecent = [];
+
     const out = await fetchInsightsOverview("u-1");
     expect(out.decaying.map((d) => d.conceptId)).toEqual(["old"]);
   });

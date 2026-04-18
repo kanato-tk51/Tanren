@@ -13,7 +13,7 @@ type OverviewItem = {
   subdomainId: string;
   masteryPct: number;
   attemptCount: number;
-  recentWrongCount?: number;
+  wrongCount: number;
 };
 
 function ProgressBar({ value }: { value: number }) {
@@ -39,6 +39,9 @@ function ItemRow({
   hint: (it: OverviewItem) => string | null;
 }) {
   const message = hint(item);
+  // /custom?prefill=... で該当 concept に絞った Custom Session を開始できる
+  const prefill = `${item.conceptName} (${item.conceptId}) を 5 問出して`;
+  const customHref = `/custom?prefill=${encodeURIComponent(prefill)}`;
   return (
     <li className="border-border rounded-md border p-2 text-sm">
       <div className="flex items-baseline justify-between gap-2">
@@ -50,6 +53,11 @@ function ItemRow({
       {message && <div className="text-muted-foreground mt-1 text-xs">{message}</div>}
       <div className="text-muted-foreground mt-1 text-xs">
         {item.domainId} / {item.subdomainId} ・ {item.conceptId}
+      </div>
+      <div className="mt-2">
+        <Button asChild variant="outline" size="sm">
+          <Link href={customHref}>🎯 この concept を出題</Link>
+        </Button>
       </div>
     </li>
   );
@@ -129,8 +137,8 @@ export function InsightsOverviewScreen() {
                   key={i.conceptId}
                   item={i}
                   hint={(it) =>
-                    it.attemptCount > 0 && (it.recentWrongCount ?? 0) > 0
-                      ? `直近 ${it.attemptCount} 問中 ${it.recentWrongCount} 問ミス`
+                    it.attemptCount > 0 && it.wrongCount > 0
+                      ? `${it.attemptCount} 問中 ${it.wrongCount} 問ミス (全期間)`
                       : null
                   }
                 />
