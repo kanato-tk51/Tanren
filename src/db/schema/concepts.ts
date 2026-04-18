@@ -22,6 +22,7 @@ export const concepts = pgTable(
       .default(sql`'[]'::jsonb`),
     difficultyLevels: jsonb("difficulty_levels")
       .$type<DifficultyLevel[]>()
+      .notNull()
       .default(sql`'[]'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

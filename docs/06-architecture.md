@@ -72,7 +72,7 @@ CREATE TABLE concepts (
   description TEXT,
   prereqs JSONB DEFAULT '[]'::jsonb,
   tags JSONB DEFAULT '[]'::jsonb,
-  difficulty_levels JSONB NOT NULL DEFAULT '[]'::jsonb,  -- 6段階のサブセット (下の CHECK で 1 件以上強制)
+  difficulty_levels JSONB NOT NULL DEFAULT '[]'::jsonb,  -- 6段階のサブセット (下の CHECK で 1 件以上強制、NOT NULL で NULL も遮断)
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

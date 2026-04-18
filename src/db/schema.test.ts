@@ -44,7 +44,7 @@ describe("db/schema", () => {
   it("concepts は DomainId でドメインを限定", () => {
     expectTypeOf<Concept["domainId"]>().toEqualTypeOf<(typeof DOMAIN_IDS)[number]>();
     expectTypeOf<Concept["difficultyLevels"]>().toEqualTypeOf<
-      (typeof DIFFICULTY_LEVELS)[number][] | null
+      (typeof DIFFICULTY_LEVELS)[number][]
     >();
     expectTypeOf<Concept["prereqs"]>().toEqualTypeOf<string[] | null>();
   });

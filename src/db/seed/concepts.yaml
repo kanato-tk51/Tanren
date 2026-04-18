@@ -77,9 +77,9 @@ concepts:
 
   # frontend (1)
   - id: frontend.react.hooks_rules
-    name: React Hooks のルール
+    name: フックのルールと依存配列
     domain: frontend
     subdomain: react
-    description: Hooks の呼び出し順序と条件分岐で呼んではいけない理由
+    description: Hooks の呼び出し順序 / 条件分岐で呼ばない理由 / useEffect の依存配列
     difficulty_levels: [junior, mid]
-    tags: [react, hooks]
+    tags: [pitfall]
