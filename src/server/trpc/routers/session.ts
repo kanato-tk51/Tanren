@@ -396,22 +396,25 @@ export const sessionRouter = router({
           .where(and(eq(attempts.userId, ctx.user.id), eq(attempts.conceptId, conceptRow.id)))
           .orderBy(desc(attempts.createdAt))
           .limit(STREAK_FOR_PROMOTION);
-        // 難易度の決定順位:
-        //   1. Custom spec の絶対難易度 (ユーザー指定尊重、昇格しない)
-        //   2. Diagnostic の固定難易度 (= user.selfLevel、昇格しない)
-        //   3. それ以外: input.difficulty を起点に 3 連続正解で 1 段昇格
-        // concept がその難易度をサポートしない場合は concept.difficultyLevels[0] にフォールバック。
-        const fixedDifficulty: DifficultyLevel | null = customSpec
-          ? (customSpec.difficulty?.level ?? null)
+        // 難易度の決定:
+        //   1. 「昇格しない」モード = Custom Session または Diagnostic
+        //      - Custom: customSpec.difficulty を優先、無ければ concept.difficultyLevels[0] → input.difficulty fallback
+        //      - Diagnostic: spec.diagnosticDifficulty (= user.selfLevel) を優先、無ければ concept fallback
+        //   2. 通常 (Daily / Review): input.difficulty を起点に 3 連続正解で 1 段昇格
+        // どちらのモードでも、concept が選んだ難易度を含まなければ concept.difficultyLevels[0] に
+        // 改めて fallback する (input.difficulty 既定 'junior' が concept 非対応で generateMcq が落ちる回避)。
+        const skipPromotion = customSpec != null || session.kind === "diagnostic";
+        const preferredDifficulty: DifficultyLevel = customSpec
+          ? (customSpec.difficulty?.level ?? conceptRow.difficultyLevels[0] ?? input.difficulty)
           : session.kind === "diagnostic"
-            ? (spec.diagnosticDifficulty ?? null)
-            : null;
-        const requestedDifficulty: DifficultyLevel = fixedDifficulty
-          ? conceptRow.difficultyLevels.includes(fixedDifficulty)
-            ? fixedDifficulty
-            : (conceptRow.difficultyLevels[0] ?? input.difficulty)
-          : input.difficulty;
-        const promoted = fixedDifficulty
+            ? (spec.diagnosticDifficulty ?? conceptRow.difficultyLevels[0] ?? input.difficulty)
+            : input.difficulty;
+        const requestedDifficulty: DifficultyLevel = conceptRow.difficultyLevels.includes(
+          preferredDifficulty,
+        )
+          ? preferredDifficulty
+          : (conceptRow.difficultyLevels[0] ?? input.difficulty);
+        const promoted = skipPromotion
           ? null
           : computePromotion({
               concept: { difficultyLevels: conceptRow.difficultyLevels },

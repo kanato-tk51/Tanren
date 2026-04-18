@@ -74,12 +74,20 @@ export function OnboardingScreen() {
   const [interestDomains, setInterestDomains] = useState<Tier1DomainId[]>([]);
   const [selfLevel, setSelfLevel] = useState<SelfLevel | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // result カードに表示する診断結果のスナップショット。
+  // DrillScreen が onReset 経由で finalSummary を渡してくれるので、
+  // event handler 内で setState するだけで済む (Codex Round 1 指摘 #1)。
+  const [resultSnapshot, setResultSnapshot] = useState<{
+    questionCount: number;
+    correctCount: number;
+    accuracy: number;
+  } | null>(null);
 
   const savePrefs = trpc.onboarding.savePreferences.useMutation();
   const completeOnboarding = trpc.onboarding.complete.useMutation();
   const startSession = trpc.session.start.useMutation();
   const nextQuestion = trpc.session.next.useMutation();
-  const { reset, setSession, setQuestion, summary } = useDrillStore();
+  const { reset, setSession, setQuestion } = useDrillStore();
 
   const toggleDomain = useCallback((d: Tier1DomainId) => {
     setInterestDomains((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
@@ -124,7 +132,15 @@ export function OnboardingScreen() {
 
   // === running: DrillScreen を埋め込み、終了時 (summary が埋まったら) result に遷移 ===
   if (step.kind === "running") {
-    return <DrillScreen onReset={() => setStep({ kind: "result" })} skipInitialStartCard />;
+    return (
+      <DrillScreen
+        onReset={(finalSummary) => {
+          setResultSnapshot(finalSummary);
+          setStep({ kind: "result" });
+        }}
+        skipInitialStartCard
+      />
+    );
   }
 
   // === result: 簡易サマリ + 「最初の Daily Drill へ」 ===
@@ -134,8 +150,8 @@ export function OnboardingScreen() {
         <CardHeader>
           <CardTitle>診断テスト完了</CardTitle>
           <CardDescription>
-            {summary
-              ? `${summary.questionCount} 問中 ${summary.correctCount} 問正解 (${Math.round(summary.accuracy * 100)}%)`
+            {resultSnapshot
+              ? `${resultSnapshot.questionCount} 問中 ${resultSnapshot.correctCount} 問正解 (${Math.round(resultSnapshot.accuracy * 100)}%)`
               : "結果を保存しました"}
           </CardDescription>
         </CardHeader>
