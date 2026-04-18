@@ -1,0 +1,33 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildShortGradingPrompt > 代表入力の組み立て結果 snapshot (Issue #10 受け入れ基準) 1`] = `
+{
+  "system": "You are a senior engineer grading a short answer. Output strictly as JSON matching the provided schema. Use 日本語 for human-readable fields.",
+  "user": "## Output requirements (固定)
+
+- \`score\` (number, 0.0-1.0): 0 は完全に誤り、1 は完全に正しい。ルーブリックの必須項目すべて満たすとき 1.0 近く
+- \`correct\` (boolean): score >= 0.7 のとき true、そうでなければ false
+- \`feedback\` (string): なぜその score か、合格/不合格の根拠を 1-2 文で日本語
+- \`rubricChecks\` (array): ルーブリック各項目が満たされているかのチェック結果
+  - \`id\` (string): ルーブリック項目の id (入力の通り)
+  - \`passed\` (boolean)
+  - \`comment\` (string): 採点理由 (満たされなかった場合は何が足りないか)
+
+## Question (可変)
+
+HTTP PUT と PATCH の違いを 1 文で。
+
+## Expected answer (可変)
+
+PUT は冪等、PATCH は部分更新。
+
+## Rubric (可変)
+
+- id=r1: PUT の冪等性に言及
+- id=r2: PATCH の部分更新に言及
+
+## User answer (可変)
+
+PUT は毎回同じ結果、PATCH は一部だけ変える。",
+}
+`;

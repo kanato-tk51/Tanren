@@ -1,9 +1,11 @@
-import { eq } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { and, eq } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import {
   attempts,
   questions,
+  sessions,
   type NewAttempt,
   type Question,
   type RubricCheckResult,
@@ -34,8 +36,23 @@ export type GradeAttemptResult = {
 async function loadQuestion(questionId: string): Promise<Question> {
   const rows = await getDb().select().from(questions).where(eq(questions.id, questionId)).limit(1);
   const q = rows[0];
-  if (!q) throw new Error(`unknown question: ${questionId}`);
+  if (!q) throw new TRPCError({ code: "NOT_FOUND", message: `unknown question: ${questionId}` });
   return q;
+}
+
+/** session が呼び出し元ユーザーのものであることを確認。別 user の session への書き込みを防ぐ */
+async function assertSessionOwnership(sessionId: string, userId: string): Promise<void> {
+  const rows = await getDb()
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
+    .limit(1);
+  if (!rows[0]) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "session does not belong to the authenticated user",
+    });
+  }
 }
 
 /**
@@ -43,6 +60,7 @@ async function loadQuestion(questionId: string): Promise<Question> {
  * 問題タイプによって mcq / short 等にディスパッチする (現在サポート: mcq, short)。
  */
 export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttemptResult> {
+  await assertSessionOwnership(input.sessionId, input.userId);
   const question = await loadQuestion(input.questionId);
 
   let row: NewAttempt;

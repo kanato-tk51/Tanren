@@ -4,20 +4,25 @@ import { buildShortGradingPrompt } from "./prompts";
 import { GradedShortSchema, SHORT_JSON_SCHEMA } from "./schema";
 
 describe("buildShortGradingPrompt", () => {
-  it("snapshot: 代表入力 (rubric あり) に対する組み立て結果", () => {
-    const out = buildShortGradingPrompt({
-      question: {
-        prompt: "HTTP PUT と PATCH の違いを 1 文で。",
-        answer: "PUT は冪等、PATCH は部分更新。",
-        rubric: [
-          { id: "r1", description: "PUT の冪等性に言及" },
-          { id: "r2", description: "PATCH の部分更新に言及" },
-        ],
-      },
-      userAnswer: "PUT は毎回同じ結果、PATCH は一部だけ変える。",
-    });
+  const sampleInput = {
+    question: {
+      prompt: "HTTP PUT と PATCH の違いを 1 文で。",
+      answer: "PUT は冪等、PATCH は部分更新。",
+      rubric: [
+        { id: "r1", description: "PUT の冪等性に言及" },
+        { id: "r2", description: "PATCH の部分更新に言及" },
+      ],
+    },
+    userAnswer: "PUT は毎回同じ結果、PATCH は一部だけ変える。",
+  };
 
-    // Output requirements は冒頭 (prompt caching)
+  it("代表入力の組み立て結果 snapshot (Issue #10 受け入れ基準)", () => {
+    const out = buildShortGradingPrompt(sampleInput);
+    expect({ system: out.system, user: out.user }).toMatchSnapshot();
+  });
+
+  it("Output requirements が user 冒頭 (prompt caching 規約)", () => {
+    const out = buildShortGradingPrompt(sampleInput);
     expect(out.user.indexOf("## Output requirements")).toBeLessThan(
       out.user.indexOf("## Question"),
     );
