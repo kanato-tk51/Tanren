@@ -18,7 +18,8 @@ export const SeedConceptSchema = z
     subdomain: z.string().min(1),
     prereqs: z.array(z.string()).default([]),
     tags: z.array(z.string()).default([]),
-    difficulty_levels: z.array(z.enum(DIFFICULTY_LEVELS)).default([]),
+    // 1 つ以上必須: 難易度レベルが無いと問題生成・出題ができないため
+    difficulty_levels: z.array(z.enum(DIFFICULTY_LEVELS)).min(1),
   })
   .superRefine((value, ctx) => {
     // id の第 1/第 2 セグメントが domain/subdomain と整合しているかを強制。

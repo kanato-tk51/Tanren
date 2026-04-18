@@ -63,6 +63,35 @@ describe("seed file", () => {
     expect(() => SeedFileSchema.parse(bad)).toThrow(/domain/);
   });
 
+  it("difficulty_levels が空配列の seed は reject", () => {
+    const bad = {
+      concepts: [
+        {
+          id: "network.http.status_codes",
+          name: "難易度空サンプル",
+          domain: "network",
+          subdomain: "http",
+          difficulty_levels: [],
+        },
+      ],
+    };
+    expect(() => SeedFileSchema.parse(bad)).toThrow();
+  });
+
+  it("difficulty_levels を省略した seed も reject", () => {
+    const bad = {
+      concepts: [
+        {
+          id: "network.http.status_codes",
+          name: "難易度欠落サンプル",
+          domain: "network",
+          subdomain: "http",
+        },
+      ],
+    };
+    expect(() => SeedFileSchema.parse(bad)).toThrow();
+  });
+
   it("subdomain 未指定の seed は Zod で reject (3 階層必須)", () => {
     const bad = {
       concepts: [

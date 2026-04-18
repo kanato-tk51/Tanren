@@ -67,7 +67,7 @@ Phase 5+ で追加:
 CREATE TABLE concepts (
   id TEXT PRIMARY KEY,              -- 'network.tcp.congestion'
   domain_id TEXT NOT NULL,
-  subdomain_id TEXT,
+  subdomain_id TEXT NOT NULL,
   name TEXT NOT NULL,
   description TEXT,
   prereqs JSONB DEFAULT '[]'::jsonb,

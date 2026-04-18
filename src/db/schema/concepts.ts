@@ -9,7 +9,9 @@ export const concepts = pgTable(
     /** 'network.tcp.congestion' のような snake_case ドット区切り */
     id: text("id").primaryKey(),
     domainId: text("domain_id").$type<DomainId>().notNull(),
-    subdomainId: text("subdomain_id"),
+    // 3 階層 (domain.subdomain.concept) 固定ルール (docs/02-learning-system.md §2.1)。
+    // 複数経路から null が入らないよう DB 側でも NOT NULL
+    subdomainId: text("subdomain_id").notNull(),
     name: text("name").notNull(),
     description: text("description"),
     prereqs: jsonb("prereqs")
