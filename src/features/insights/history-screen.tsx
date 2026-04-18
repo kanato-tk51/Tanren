@@ -17,7 +17,27 @@ import type { AppRouter } from "@/server/trpc/routers";
 type HistoryItem = inferRouterOutputs<AppRouter>["insights"]["history"]["items"][number];
 
 const PERIOD_VALUES = ["all", "today", "week"] as const;
-const CORRECTNESS_VALUES = ["all", "correct", "wrong"] as const;
+const CORRECTNESS_VALUES = ["all", "correct", "partial", "wrong"] as const;
+
+// 部分正解判定の閾値は server 側 history.ts と一致させる (docs/05 部分正解表示)
+const PARTIAL_MIN_SCORE = 0.3;
+const FULL_MIN_SCORE = 0.9;
+
+/** correct boolean と score から表示ラベルと色を決定 */
+function deriveStatus(
+  correct: boolean | null,
+  score: number | null,
+): { label: string; className: string } {
+  if (correct === null) return { label: "判定なし", className: "text-muted-foreground" };
+  if (correct === true && score !== null && score >= FULL_MIN_SCORE) {
+    return { label: "○ 正解", className: "text-emerald-600" };
+  }
+  if (correct === true) return { label: "◐ 合格", className: "text-emerald-600/80" };
+  if (score !== null && score >= PARTIAL_MIN_SCORE) {
+    return { label: "◐ 部分正解", className: "text-amber-600" };
+  }
+  return { label: "× 不正解", className: "text-destructive" };
+}
 
 /**
  * History 画面 (issue #21, docs/05 §5.5)。
@@ -76,7 +96,8 @@ export function HistoryScreen() {
               className="border-input bg-background rounded-md border px-2 py-1"
             >
               <option value="all">正誤すべて</option>
-              <option value="correct">正解のみ</option>
+              <option value="correct">正解のみ (score ≥ 0.9)</option>
+              <option value="partial">部分正解のみ</option>
               <option value="wrong">誤答のみ</option>
             </select>
             <select
@@ -134,14 +155,7 @@ export function HistoryScreen() {
 
 function HistoryRow({ item }: { item: HistoryItem }) {
   const [expanded, setExpanded] = useState(false);
-  const correctLabel =
-    item.correct === true ? "○ 正解" : item.correct === false ? "× 不正解" : "判定なし";
-  const correctClass =
-    item.correct === true
-      ? "text-emerald-600"
-      : item.correct === false
-        ? "text-destructive"
-        : "text-muted-foreground";
+  const { label: correctLabel, className: correctClass } = deriveStatus(item.correct, item.score);
   const created = new Date(item.createdAt);
   const customHref = `/custom?conceptId=${encodeURIComponent(item.conceptId)}`;
 

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, lt, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, or, type SQL } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import { attempts, concepts, questions } from "@/db/schema";
@@ -7,14 +7,30 @@ import type { DomainId } from "@/db/schema/_constants";
 export type HistoryFilter = {
   /** 'all' | 'today' | 'week' */
   period?: "all" | "today" | "week";
-  /** 'all' | 'correct' | 'wrong' */
-  correctness?: "all" | "correct" | "wrong";
+  /** 'all' | 'correct' | 'partial' | 'wrong' */
+  correctness?: "all" | "correct" | "partial" | "wrong";
   /** 分野 (domain ID) でフィルタ */
   domains?: string[];
   /** カーソル (createdAt ISO 文字列)。この時刻より古い attempt を取得 */
   cursor?: string;
   limit?: number;
 };
+
+/** 部分正解の閾値: score >= PARTIAL_MIN & < FULL_MIN を「部分正解」とする */
+const PARTIAL_MIN_SCORE = 0.3;
+const FULL_MIN_SCORE = 0.9;
+
+/** Asia/Tokyo (JST, UTC+9) 固定で今日の 00:00 と直近 7 日境界を返す (MVP: 個人用 / 日本語 UI) */
+function jstPeriodBounds(now: Date = new Date()): { today: Date; weekAgo: Date } {
+  const nowJstMs = now.getTime() + 9 * 60 * 60 * 1000;
+  const dayMs = 24 * 60 * 60 * 1000;
+  const jstStartOfTodayMs = Math.floor(nowJstMs / dayMs) * dayMs;
+  const todayUtcMs = jstStartOfTodayMs - 9 * 60 * 60 * 1000;
+  return {
+    today: new Date(todayUtcMs),
+    weekAgo: new Date(todayUtcMs - 6 * dayMs),
+  };
+}
 
 export type HistoryItem = {
   attemptId: string;
@@ -59,22 +75,36 @@ export async function fetchHistory(params: {
 
   const preds: SQL[] = [eq(attempts.userId, params.userId)];
 
-  // 期間
+  // 期間は JST (Asia/Tokyo) 基準で「今日」と「今週 (直近 7 日 JST の 00:00 境界)」を算出
+  // (Round 3 指摘: サーバがローカルタイムで判定していた)。
   if (filter.period === "today") {
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    preds.push(gte(attempts.createdAt, startOfToday));
+    preds.push(gte(attempts.createdAt, jstPeriodBounds().today));
   } else if (filter.period === "week") {
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    preds.push(gte(attempts.createdAt, weekAgo));
+    preds.push(gte(attempts.createdAt, jstPeriodBounds().weekAgo));
   }
 
-  // 正誤
+  // 正誤: correct と score を組み合わせて correct / partial / wrong を判定 (Round 3 指摘)。
+  // - correct: score >= FULL_MIN_SCORE (= 0.9) かつ correct=true
+  // - partial: correct=true で score < FULL_MIN_SCORE、または correct=false で score >= PARTIAL_MIN_SCORE
+  // - wrong:   上記以外 (correct=false かつ score < PARTIAL_MIN_SCORE、または correct=false & score=null)
   if (filter.correctness === "correct") {
-    preds.push(eq(attempts.correct, true));
+    preds.push(and(eq(attempts.correct, true), gte(attempts.score, FULL_MIN_SCORE)) as SQL);
+  } else if (filter.correctness === "partial") {
+    preds.push(
+      or(
+        and(eq(attempts.correct, true), lt(attempts.score, FULL_MIN_SCORE)) as SQL,
+        and(eq(attempts.correct, false), gte(attempts.score, PARTIAL_MIN_SCORE)) as SQL,
+      ) as SQL,
+    );
   } else if (filter.correctness === "wrong") {
-    preds.push(eq(attempts.correct, false));
+    preds.push(
+      and(
+        eq(attempts.correct, false),
+        or(lt(attempts.score, PARTIAL_MIN_SCORE), isNull(attempts.score)) as SQL,
+      ) as SQL,
+    );
   }
+  // "all" および undefined は追加 predicate なし
 
   // 分野 (domain) は concepts.domainId で絞る。conceptId で attempts を絞り込むため、
   // 対象 domain の concept id を先に取得し、attempts.conceptId IN (...) で渡す。

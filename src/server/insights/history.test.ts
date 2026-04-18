@@ -6,13 +6,22 @@ import { fetchHistory } from "./history";
 //   1. (domains 指定時) select({id}).from(concepts).where(inArray) → conceptIds
 //   2. select(...).from(attempts).innerJoin.innerJoin.where.orderBy.limit → attempts rows
 // drizzle chain を簡略化した promise-then stub。
+// spy: where / orderBy に渡された式を capture して後段 assert できるようにする。
 const queue: Array<() => unknown> = [];
+const whereSpy = vi.fn();
+const orderBySpy = vi.fn();
 vi.mock("@/db/client", () => {
   function makeBuilder(): unknown {
     const b: Record<string, unknown> = {
       from: () => b,
-      where: () => b,
-      orderBy: () => b,
+      where: (...args: unknown[]) => {
+        whereSpy(...args);
+        return b;
+      },
+      orderBy: (...args: unknown[]) => {
+        orderBySpy(...args);
+        return b;
+      },
       limit: () => b,
       innerJoin: () => b,
       then: (onFulfilled: (v: unknown) => unknown) => {
@@ -30,6 +39,8 @@ vi.mock("@/db/client", () => {
 
 beforeEach(() => {
   queue.length = 0;
+  whereSpy.mockClear();
+  orderBySpy.mockClear();
 });
 
 function mkRow(over: Partial<Record<string, unknown>> = {}) {
@@ -89,6 +100,21 @@ describe("fetchHistory", () => {
       filter: { cursor: "2026-04-18T00:00:00.000Z" },
     });
     expect(out2.items).toHaveLength(1);
+  });
+
+  it("orderBy は (createdAt DESC, attemptId DESC) の 2 引数で呼ばれる (Round 3 spy 検証)", async () => {
+    queue.push(() => []);
+    await fetchHistory({ userId: "u-1" });
+    expect(orderBySpy).toHaveBeenCalledTimes(1);
+    expect(orderBySpy.mock.calls[0]).toHaveLength(2);
+  });
+
+  it("where は必ず呼ばれて predicate が注入されている (user_id フィルタの回帰防止)", async () => {
+    queue.push(() => []);
+    await fetchHistory({ userId: "u-1" });
+    expect(whereSpy).toHaveBeenCalled();
+    const arg = whereSpy.mock.calls[0]?.[0];
+    expect(arg).toBeDefined();
   });
 
   it("同一 createdAt が limit 境界をまたいでも取りこぼさない (Round 2 指摘)", async () => {

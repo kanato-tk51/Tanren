@@ -21,7 +21,7 @@ export const insightsRouter = router({
     .input(
       z.object({
         period: z.enum(["all", "today", "week"]).optional(),
-        correctness: z.enum(["all", "correct", "wrong"]).optional(),
+        correctness: z.enum(["all", "correct", "partial", "wrong"]).optional(),
         domains: z.array(z.enum(DOMAIN_IDS)).optional(),
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(100).optional(),
