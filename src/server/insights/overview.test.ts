@@ -155,4 +155,29 @@ describe("fetchInsightsOverview (集計スナップショット)", () => {
     const out = await fetchInsightsOverview("u-1");
     expect(out.decaying.map((d) => d.conceptId)).toEqual(["old"]);
   });
+
+  it("decaying は同じ lastReview の場合 conceptId で安定ソート (Round 5)", async () => {
+    const sameTime = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    fixtures.concepts = [
+      { id: "ccc", name: "Ccc", domainId: "x", subdomainId: "y", prereqs: [] },
+      { id: "aaa", name: "Aaa", domainId: "x", subdomainId: "y", prereqs: [] },
+      { id: "bbb", name: "Bbb", domainId: "x", subdomainId: "y", prereqs: [] },
+      { id: "ddd", name: "Ddd", domainId: "x", subdomainId: "y", prereqs: [] },
+    ];
+    fixtures.mastery = [
+      { conceptId: "ccc", userId: "u-1", mastered: false, masteryPct: 0.5, lastReview: sameTime },
+      { conceptId: "aaa", userId: "u-1", mastered: false, masteryPct: 0.5, lastReview: sameTime },
+      { conceptId: "bbb", userId: "u-1", mastered: false, masteryPct: 0.5, lastReview: sameTime },
+      { conceptId: "ddd", userId: "u-1", mastered: false, masteryPct: 0.5, lastReview: sameTime },
+    ];
+    fixtures.attemptsGroup = [
+      { conceptId: "ccc", total: 3 },
+      { conceptId: "aaa", total: 3 },
+      { conceptId: "bbb", total: 3 },
+      { conceptId: "ddd", total: 3 },
+    ];
+
+    const out = await fetchInsightsOverview("u-1");
+    expect(out.decaying.map((d) => d.conceptId)).toEqual(["aaa", "bbb", "ccc"]);
+  });
 });

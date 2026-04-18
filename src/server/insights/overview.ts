@@ -116,7 +116,8 @@ export async function fetchInsightsOverview(userId: string): Promise<InsightsOve
     )
     .slice(0, TOP_N);
 
-  // Decaying: mastered=false かつ最終レビューが DECAYING_DAYS 日以上前
+  // Decaying: mastered=false かつ最終レビューが DECAYING_DAYS 日以上前。
+  // 古い順 (忘却進行度合いが大きい順)。同日の場合は conceptId で安定化 (Round 5 指摘)。
   const decaying = items
     .filter((i) => {
       if (!i.lastReview) return false;
@@ -125,10 +126,9 @@ export async function fetchInsightsOverview(userId: string): Promise<InsightsOve
       return days >= DECAYING_DAYS && i.masteryPct < 0.8;
     })
     .sort((a, b) => {
-      // 古い順 (忘却進行度合いが大きい順)
       const aDate = a.lastReview?.getTime() ?? 0;
       const bDate = b.lastReview?.getTime() ?? 0;
-      return aDate - bDate;
+      return aDate - bDate || a.conceptId.localeCompare(b.conceptId);
     })
     .slice(0, TOP_N);
 
