@@ -90,6 +90,11 @@ export function DrillScreen() {
         questionType: result.questionType ?? null,
         correctAnswer: result.correctAnswer ?? null,
         userAnswer: answer,
+        rubricChecks: (result.rubricChecks ?? []).map((r) => ({
+          id: r.id,
+          passed: r.passed,
+          comment: r.comment ?? "",
+        })),
       });
     } catch (e) {
       setErrorMessage(toMessage(e));
@@ -257,6 +262,7 @@ export function DrillScreen() {
                   correct: grading.correct,
                   score: grading.score,
                   feedback: grading.feedback,
+                  rubricChecks: grading.rubricChecks,
                 }}
               />
               {grading.questionType && grading.questionType !== "mcq" && (

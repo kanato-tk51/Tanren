@@ -87,4 +87,32 @@ describe("buildCopyForLlm", () => {
     expect(out).not.toContain("```");
     expect(out).toContain("~~~");
   });
+
+  it("meta / tags / rubricChecks.comment の改行・``` も sanitize される", () => {
+    const out = buildCopyForLlm({
+      ...base,
+      question: {
+        ...base.question,
+        tags: ["tag\nwith\nnewline", "```danger"],
+        meta: {
+          ...base.question.meta,
+          conceptName: "name\nwith\nbreak",
+          conceptId: "id```inside",
+        },
+      },
+      grading: {
+        ...base.grading,
+        rubricChecks: [{ id: "r1", passed: true, comment: "comment\nwith break ```" }],
+      },
+    });
+    // メタ / タグ / rubric comment から ``` や改行が除去されている
+    expect(out).not.toMatch(/```/);
+    // タグ行が 1 行で閉じる
+    const tagLine = out.split("\n").find((l) => l.startsWith("- タグ:"));
+    expect(tagLine).toBeDefined();
+    expect(tagLine).not.toContain("\n");
+    // concept 行も 1 行
+    const conceptLine = out.split("\n").find((l) => l.startsWith("- 概念:"));
+    expect(conceptLine).not.toContain("\n");
+  });
 });

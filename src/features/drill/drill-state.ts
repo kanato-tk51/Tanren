@@ -28,6 +28,8 @@ export type DrillGrading = {
   correctAnswer: string | null;
   /** ユーザーが実際に回答した文字列 (mcq は選択した選択肢の文言) */
   userAnswer: string | null;
+  /** copy-for-llm テンプレで使う採点ルーブリック結果 (短答・記述のみ埋まる) */
+  rubricChecks: Array<{ id: string; passed: boolean; comment: string }>;
 };
 
 export type DrillSummary = {

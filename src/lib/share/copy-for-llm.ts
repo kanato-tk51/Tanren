@@ -47,24 +47,31 @@ function sanitize(text: string): string {
   return text.replace(/```/g, "~~~");
 }
 
+/** タグやメタラベルに使う 1 行化 + sanitize。改行が入るとテンプレの箇条書き構造が壊れる */
+function sanitizeLine(text: string): string {
+  return sanitize(text)
+    .replace(/[\r\n]+/g, " ")
+    .trim();
+}
+
 function truncate(text: string): string {
   if (text.length <= MAX_USER_ANSWER_LEN) return text;
   return `${text.slice(0, MAX_USER_ANSWER_LEN)}...`;
 }
 
 function formatDomainLine(meta: NonNullable<CopyForLlmInput["question"]["meta"]>): string | null {
-  const left = meta.domain?.trim();
-  const right = meta.subdomain?.trim();
+  const left = meta.domain ? sanitizeLine(meta.domain) : "";
+  const right = meta.subdomain ? sanitizeLine(meta.subdomain) : "";
   if (!left && !right) return null;
-  return `- ドメイン: ${left ?? "-"} > ${right ?? "-"}`;
+  return `- ドメイン: ${left || "-"} > ${right || "-"}`;
 }
 
 function formatConceptLine(meta: NonNullable<CopyForLlmInput["question"]["meta"]>): string | null {
-  const name = meta.conceptName?.trim();
-  const id = meta.conceptId?.trim();
+  const name = meta.conceptName ? sanitizeLine(meta.conceptName) : "";
+  const id = meta.conceptId ? sanitizeLine(meta.conceptId) : "";
   if (!name && !id) return null;
   if (name && id) return `- 概念: ${name} (${id})`;
-  return `- 概念: ${name ?? id}`;
+  return `- 概念: ${name || id}`;
 }
 
 function formatRubricChecks(
@@ -72,7 +79,10 @@ function formatRubricChecks(
 ): string {
   if (rubricChecks.length === 0) return "  - (採点ルーブリックなし)";
   return rubricChecks
-    .map((r) => `  - id=${r.id}: ${r.passed ? "✓" : "✗"} ${r.comment ?? ""}`)
+    .map(
+      (r) =>
+        `  - id=${sanitizeLine(r.id)}: ${r.passed ? "✓" : "✗"} ${sanitizeLine(r.comment ?? "")}`,
+    )
     .join("\n");
 }
 
@@ -101,10 +111,10 @@ export function buildCopyForLlm(input: CopyForLlmInput): string {
   if (domainLine) metaLines.push(domainLine);
   const conceptLine = formatConceptLine(meta);
   if (conceptLine) metaLines.push(conceptLine);
-  if (meta.thinkingStyle) metaLines.push(`- 思考スタイル: ${meta.thinkingStyle}`);
-  if (meta.difficulty) metaLines.push(`- 難易度: ${meta.difficulty}`);
+  if (meta.thinkingStyle) metaLines.push(`- 思考スタイル: ${sanitizeLine(meta.thinkingStyle)}`);
+  if (meta.difficulty) metaLines.push(`- 難易度: ${sanitizeLine(meta.difficulty)}`);
   if (question.tags && question.tags.length > 0) {
-    metaLines.push(`- タグ: ${question.tags.join(" / ")}`);
+    metaLines.push(`- タグ: ${question.tags.map(sanitizeLine).join(" / ")}`);
   }
 
   lines.push("## 問題");

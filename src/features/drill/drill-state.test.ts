@@ -59,6 +59,7 @@ describe("useDrillStore", () => {
       questionType: "mcq",
       correctAnswer: "正解の文言",
       userAnswer: "選んだ文言",
+      rubricChecks: [],
     });
     const s = useDrillStore.getState();
     expect(s.phase).toBe("graded");
