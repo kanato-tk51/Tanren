@@ -50,4 +50,8 @@ thinking_style: {{ thinkingStyle }}
 Past recent framings for this concept (last 30 days, if any):
 {{ pastQuestionsSummary }}
 
+## User misconceptions to correct (可変、任意)
+
+{{ userMisconceptions }}
+
 <!-- /role -->

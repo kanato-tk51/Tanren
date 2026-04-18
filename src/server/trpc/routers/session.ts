@@ -303,6 +303,8 @@ export const sessionRouter = router({
           conceptId: conceptRow.id,
           difficulty: effectiveDifficulty,
           thinkingStyle: effectiveThinkingStyle,
+          // 生成プロンプトに「この concept で繰り返し誤解」を注入する (issue #19)。
+          userId: ctx.user.id,
         });
         question = generated.question;
         questionMeta = {

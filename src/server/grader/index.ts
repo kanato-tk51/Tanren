@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import {
   attempts,
+  concepts,
   questions,
   sessions,
   type NewAttempt,
@@ -12,6 +13,7 @@ import {
 } from "@/db/schema";
 import { updateMasteryAfterAttempt } from "@/server/scheduler/update-mastery";
 
+import { extractAndPersistMisconception } from "./extract-misconception";
 import { gradeMcq } from "./mcq";
 import { gradeShort } from "./short";
 import { gradeWritten } from "./written";
@@ -159,6 +161,29 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
         conceptId: question.conceptId,
         score: grade.score,
       });
+    }
+    // 誤答 + reason_given が与えられたときだけ誤概念抽出を走らせる (issue #19)。
+    // mastery と違って updateMastery=false でも走らせる (学習体験に関わるログ)。
+    // LLM 呼び出しなので失敗は UX を止めないよう try/catch で握りつぶす (Sentry で可視化)。
+    if (grade.correct === false && input.reasonGiven && input.reasonGiven.trim().length > 0) {
+      try {
+        const conceptRow = await getDb()
+          .select({ id: concepts.id, name: concepts.name })
+          .from(concepts)
+          .where(eq(concepts.id, question.conceptId))
+          .limit(1);
+        if (conceptRow[0]) {
+          await extractAndPersistMisconception({
+            userId: input.userId,
+            concept: conceptRow[0],
+            question: { prompt: question.prompt, answer: question.answer },
+            userAnswer: input.userAnswer,
+            reasonGiven: input.reasonGiven,
+          });
+        }
+      } catch {
+        // 誤概念抽出の失敗は採点結果の返却を妨げない (docs/03 §3.4.1)
+      }
     }
     return grade;
   }

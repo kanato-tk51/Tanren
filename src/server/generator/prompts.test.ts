@@ -84,7 +84,11 @@ describe("buildMcqPrompt", () => {
       ## Avoid duplicates (可変)
 
       Past recent framings for this concept (last 30 days, if any):
-      - setTimeout の評価タイミングを問う問題",
+      - setTimeout の評価タイミングを問う問題
+
+      ## User misconceptions to correct (可変、任意)
+
+      (none)",
       }
     `);
   });
