@@ -15,6 +15,7 @@ import {
 import type { CopyForLlmQuestionMeta } from "@/lib/share/copy-for-llm";
 import { generateMcq } from "@/server/generator/mcq";
 import { gradeAttempt } from "@/server/grader";
+import { CustomSessionSpecSchema, type CustomSessionSpec } from "@/server/parser/schema";
 import { selectDailyCandidates } from "@/server/scheduler/daily";
 import { STREAK_FOR_PROMOTION, computePromotion } from "@/server/scheduler/promotion";
 
@@ -30,6 +31,8 @@ type SessionSpec = {
   targetCount?: number;
   /** 出題中の question.id。submit 時に一致チェックして「別問題への水増し submit」を防ぐ */
   pendingQuestionId?: string | null;
+  /** Custom Session 指定 (kind: 'custom' のときだけ埋まる。issue #18) */
+  customSpec?: CustomSessionSpec;
 };
 
 async function loadSession(sessionId: string, userId: string) {
@@ -86,20 +89,39 @@ export const sessionRouter = router({
       z.object({
         kind: SessionKindEnum.default("daily"),
         targetCount: z.number().int().min(1).max(20).optional(),
+        /** Custom Session 指定時のみ。パース結果 (CustomSessionSpec) を Zod で再検証 */
+        customSpec: CustomSessionSpecSchema.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      if (input.kind === "custom" && !input.customSpec) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "kind='custom' には customSpec が必要です",
+        });
+      }
+      if (input.kind !== "custom" && input.customSpec) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "customSpec は kind='custom' のときだけ指定できます",
+        });
+      }
+
       const db = getDb();
+      // 問題数は customSpec.questionCount があれば優先。なければ input.targetCount、なければ既定 5
+      const targetCount =
+        input.customSpec?.questionCount ?? input.targetCount ?? DEFAULT_DRILL_LENGTH;
       const spec: SessionSpec = {
-        targetCount: input.targetCount ?? DEFAULT_DRILL_LENGTH,
+        targetCount,
         pendingQuestionId: null,
+        ...(input.customSpec ? { customSpec: input.customSpec } : {}),
       };
       const [session] = await db
         .insert(sessions)
         .values({ userId: ctx.user.id, kind: input.kind, spec })
         .returning();
       if (!session) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return { sessionId: session.id, targetCount: spec.targetCount };
+      return { sessionId: session.id, targetCount };
     }),
 
   next: protectedProcedure
@@ -151,9 +173,15 @@ export const sessionRouter = router({
       let question: Awaited<ReturnType<typeof generateMcq>>["question"];
       let questionMeta: CopyForLlmQuestionMeta | null = null;
       try {
+        // Custom Session は spec.customSpec (absolute difficulty + thinking_style 等) を優先する。
+        // concept 選定は customSpec.concepts → customSpec.domains → daily pick の順で fallback。
+        const customSpec = spec.customSpec;
+        const customConceptId = customSpec?.concepts?.[0];
         const conceptRow = input.conceptId
           ? await loadConcept(input.conceptId)
-          : await pickConceptForDrill(ctx.user.id);
+          : customConceptId
+            ? await loadConcept(customConceptId)
+            : await pickConceptForDrill(ctx.user.id);
 
         // 直近 STREAK_FOR_PROMOTION 件の同 concept の attempts を見て、3 連続正解なら次出題を 1 段昇格
         const recent = await getDb()
@@ -162,17 +190,25 @@ export const sessionRouter = router({
           .where(and(eq(attempts.userId, ctx.user.id), eq(attempts.conceptId, conceptRow.id)))
           .orderBy(desc(attempts.createdAt))
           .limit(STREAK_FOR_PROMOTION);
-        const promoted = computePromotion({
-          concept: { difficultyLevels: conceptRow.difficultyLevels },
-          currentDifficulty: input.difficulty,
-          recentCorrect: recent.map((r) => r.correct === true),
-        });
-        const effectiveDifficulty: DifficultyLevel = promoted ?? input.difficulty;
+        // custom spec があれば絶対難易度を優先 (昇格は無視。ユーザー指定を尊重)
+        const requestedDifficulty: DifficultyLevel =
+          customSpec?.difficulty?.level ?? input.difficulty;
+        const promoted = customSpec
+          ? null
+          : computePromotion({
+              concept: { difficultyLevels: conceptRow.difficultyLevels },
+              currentDifficulty: input.difficulty,
+              recentCorrect: recent.map((r) => r.correct === true),
+            });
+        const effectiveDifficulty: DifficultyLevel = promoted ?? requestedDifficulty;
+
+        // thinking_style も custom spec があれば先頭を使う。複数指定はラウンドロビン未実装 (MVP)。
+        const effectiveThinkingStyle = customSpec?.thinkingStyles?.[0] ?? input.thinkingStyle;
 
         const generated = await generateMcq({
           conceptId: conceptRow.id,
           difficulty: effectiveDifficulty,
-          thinkingStyle: input.thinkingStyle,
+          thinkingStyle: effectiveThinkingStyle,
         });
         question = generated.question;
         questionMeta = {
@@ -180,7 +216,7 @@ export const sessionRouter = router({
           subdomain: conceptRow.subdomainId,
           conceptId: conceptRow.id,
           conceptName: conceptRow.name,
-          thinkingStyle: input.thinkingStyle,
+          thinkingStyle: effectiveThinkingStyle,
           difficulty: effectiveDifficulty,
         };
       } catch (err) {
