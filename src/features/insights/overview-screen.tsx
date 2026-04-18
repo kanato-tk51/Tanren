@@ -1,20 +1,17 @@
 "use client";
 
+import type { inferRouterOutputs } from "@trpc/server";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc/react";
 
-type OverviewItem = {
-  conceptId: string;
-  conceptName: string;
-  domainId: string;
-  subdomainId: string;
-  masteryPct: number;
-  attemptCount: number;
-  wrongCount: number;
-};
+import type { AppRouter } from "@/server/trpc/routers";
+
+// Server 側の OverviewItem 型から推論して client 再定義の二重管理を避ける (Round 4 指摘 #2)。
+type InsightsOverview = inferRouterOutputs<AppRouter>["insights"]["overview"];
+type OverviewItem = InsightsOverview["strongest"][number];
 
 function ProgressBar({ value }: { value: number }) {
   const pct = Math.round(value * 100);

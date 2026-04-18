@@ -145,16 +145,20 @@ export const sessionRouter = router({
           message: "Custom Session MVP は concepts を 1 件のみ指定できます",
         });
       }
-      // concepts[0] と difficulty 両方が指定されていれば concept.difficultyLevels と
-      // 整合することを start 時点でチェック (session.next が後続で失敗するのを避ける)。
-      if (input.customSpec?.concepts?.[0] && input.customSpec.difficulty) {
+      // concepts[0] が指定されていれば常に concept の存在を確認する (Round 4 指摘 #1)。
+      // 不正/陳腐化した conceptId のリンクで空 session row が残るのを防ぐため、
+      // difficulty 未指定でも事前 loadConcept を通す。difficulty も指定されていれば
+      // concept.difficultyLevels との整合も同時にチェック。
+      if (input.customSpec?.concepts?.[0]) {
         const concept = await loadConcept(input.customSpec.concepts[0]);
-        const level = input.customSpec.difficulty.level;
-        if (!concept.difficultyLevels.includes(level)) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `concept "${concept.id}" は difficulty=${level} をサポートしていません (対応: ${concept.difficultyLevels.join(", ")})`,
-          });
+        if (input.customSpec.difficulty) {
+          const level = input.customSpec.difficulty.level;
+          if (!concept.difficultyLevels.includes(level)) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `concept "${concept.id}" は difficulty=${level} をサポートしていません (対応: ${concept.difficultyLevels.join(", ")})`,
+            });
+          }
         }
       }
       // constraints は MVP で生成プロンプトに反映されないため、該当フィールドがあれば reject
