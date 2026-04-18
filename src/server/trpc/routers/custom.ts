@@ -102,14 +102,23 @@ export const customRouter = router({
           message: "保存された spec が破損しています",
         });
       }
-      // spec 健全 → カウンタを atomic 加算 (行単位で Postgres がシリアライズする)
-      await db
+      // spec 健全 → カウンタを atomic 加算 (行単位で Postgres がシリアライズする)。
+      // SELECT と UPDATE の間に並行 deleteTemplate が走って行が消えているケースに備え、
+      // RETURNING で 0 行を検知したら NOT_FOUND で returns (Codex Round 2 指摘)。
+      const updated = await db
         .update(sessionTemplates)
         .set({
           useCount: sql`${sessionTemplates.useCount} + 1`,
           lastUsedAt: new Date(),
         })
-        .where(and(eq(sessionTemplates.id, input.id), eq(sessionTemplates.userId, ctx.user.id)));
+        .where(and(eq(sessionTemplates.id, input.id), eq(sessionTemplates.userId, ctx.user.id)))
+        .returning({ id: sessionTemplates.id });
+      if (updated.length === 0) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "テンプレが削除されました (並行削除)",
+        });
+      }
       return {
         id: row.id,
         name: row.name,
