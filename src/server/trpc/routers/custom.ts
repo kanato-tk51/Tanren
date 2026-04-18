@@ -80,19 +80,20 @@ export const customRouter = router({
    * テンプレ使用時に use_count+1 / last_used_at=NOW() を更新して spec を返す (issue #32)。
    * 返した spec を呼び出し側が session.start({ kind:'custom', customSpec }) にそのまま渡す。
    * userId 一致は where 句で担保 (他ユーザーの template に触れないように)。
+   *
+   * データ整合: SELECT → spec validate → UPDATE の 2 段階で、spec が壊れている場合に
+   * use_count が加算される回帰を防ぐ (Codex Round 1 指摘)。
+   * spec の健全性が確認できない限りカウンタと lastUsedAt は触らない。
    */
   useTemplate: protectedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const rows = await getDb()
-        .update(sessionTemplates)
-        .set({
-          useCount: sql`${sessionTemplates.useCount} + 1`,
-          lastUsedAt: new Date(),
-        })
+      const db = getDb();
+      const [row] = await db
+        .select()
+        .from(sessionTemplates)
         .where(and(eq(sessionTemplates.id, input.id), eq(sessionTemplates.userId, ctx.user.id)))
-        .returning();
-      const row = rows[0];
+        .limit(1);
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "テンプレが見つかりません" });
       const spec = CustomSessionSpecSchema.safeParse(row.spec);
       if (!spec.success) {
@@ -101,6 +102,14 @@ export const customRouter = router({
           message: "保存された spec が破損しています",
         });
       }
+      // spec 健全 → カウンタを atomic 加算 (行単位で Postgres がシリアライズする)
+      await db
+        .update(sessionTemplates)
+        .set({
+          useCount: sql`${sessionTemplates.useCount} + 1`,
+          lastUsedAt: new Date(),
+        })
+        .where(and(eq(sessionTemplates.id, input.id), eq(sessionTemplates.userId, ctx.user.id)));
       return {
         id: row.id,
         name: row.name,
