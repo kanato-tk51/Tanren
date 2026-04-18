@@ -6,8 +6,10 @@ import type { User } from "@/db/schema";
 import { appRouter } from "./index";
 
 // DB クライアントをスタブ。session.start は insert().values().returning() をチェーンで呼ぶ。
-// 他のテストで session.next / submit の DB アクセスを検証するために capture できる形に。
+// loadConcept は select().from().where().limit() を呼ぶ。
+// テスト間で「次に返す concept」を差し替えるために nextConceptRow を module スコープで保持。
 const valuesSpy = vi.fn();
+let nextConceptRow: { id: string; difficultyLevels: string[] } | null = null;
 vi.mock("@/db/client", () => {
   const returning = vi.fn().mockResolvedValue([{ id: "sess-fake" }]);
   const values = vi.fn((v: unknown) => {
@@ -15,13 +17,18 @@ vi.mock("@/db/client", () => {
     return { returning };
   });
   const insert = vi.fn().mockReturnValue({ values });
+  const limit = vi.fn(async () => (nextConceptRow ? [nextConceptRow] : []));
+  const whereFn = vi.fn(() => ({ limit }));
+  const fromFn = vi.fn(() => ({ where: whereFn }));
+  const selectFn = vi.fn(() => ({ from: fromFn }));
   return {
-    getDb: vi.fn().mockReturnValue({ insert }),
+    getDb: vi.fn().mockReturnValue({ insert, select: selectFn }),
   };
 });
 
 beforeEach(() => {
   valuesSpy.mockClear();
+  nextConceptRow = null;
 });
 
 describe("session.start with customSpec validation", () => {
@@ -171,7 +178,44 @@ describe("session.start with customSpec validation", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
+  it("concepts[0] と difficulty が不整合なら start 時点で BAD_REQUEST (Round 9 #1)", async () => {
+    nextConceptRow = {
+      id: "programming.basics.value_vs_reference",
+      difficultyLevels: ["beginner", "junior"],
+    };
+    await expect(
+      caller.session.start({
+        kind: "custom",
+        customSpec: {
+          questionCount: 3,
+          difficulty: { kind: "absolute", level: "senior" },
+          concepts: ["programming.basics.value_vs_reference"],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("concepts[0] と difficulty が整合する場合は accept", async () => {
+    nextConceptRow = {
+      id: "db.rdb.btree_index",
+      difficultyLevels: ["junior", "mid", "senior"],
+    };
+    const res = await caller.session.start({
+      kind: "custom",
+      customSpec: {
+        questionCount: 3,
+        difficulty: { kind: "absolute", level: "senior" },
+        concepts: ["db.rdb.btree_index"],
+      },
+    });
+    expect(res.sessionId).toBe("sess-fake");
+  });
+
   it("正ケース: accept → insert payload に customSpec / kind='custom' / userId が積まれる", async () => {
+    nextConceptRow = {
+      id: "network.tcp.basics",
+      difficultyLevels: ["beginner", "junior", "mid"],
+    };
     const inputSpec = {
       questionCount: 3,
       difficulty: { kind: "absolute" as const, level: "junior" as const },

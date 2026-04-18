@@ -146,6 +146,18 @@ export const sessionRouter = router({
           message: "Custom Session MVP は concepts を 1 件のみ指定できます",
         });
       }
+      // concepts[0] と difficulty 両方が指定されていれば concept.difficultyLevels と
+      // 整合することを start 時点でチェック (session.next が後続で失敗するのを避ける)。
+      if (input.customSpec?.concepts?.[0] && input.customSpec.difficulty) {
+        const concept = await loadConcept(input.customSpec.concepts[0]);
+        const level = input.customSpec.difficulty.level;
+        if (!concept.difficultyLevels.includes(level)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `concept "${concept.id}" は difficulty=${level} をサポートしていません (対応: ${concept.difficultyLevels.join(", ")})`,
+          });
+        }
+      }
       // constraints は MVP で生成プロンプトに反映されないため、該当フィールドがあれば reject
       // (プレビューで「指定した」と見えて実行時に無視されるのは虚偽表示に近い挙動なので)。
       if (input.customSpec?.constraints) {
