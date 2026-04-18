@@ -65,13 +65,14 @@ export function ReviewScreen() {
           Mistake Review
         </CardTitle>
         <CardDescription>
-          直近 14 日間で誤答した concept を 1 問ずつ、最大 15 問まで復習します。
+          直近 14 日間で誤答した concept を 10-15 問にわたって復習します。
         </CardDescription>
       </CardHeader>
       <CardContent className="text-muted-foreground space-y-2 text-sm">
         <p>
-          concept ごとに最新 1 問ずつを選び、Drill 画面で通常と同じフローで解きます。
-          今までに誤答した分野の「叩き直し」に使ってください。
+          concept ごとに最新の誤答 1 件ずつを候補化し、Drill 画面で解きます。候補が 10
+          件未満のときは同じ concept を別の問題で繰り返し出題して 10-15 問の
+          枠を埋めます。誤答した分野の「叩き直し」に使ってください。
         </p>
         {error && (
           <div className="text-destructive flex items-start gap-1 text-xs">

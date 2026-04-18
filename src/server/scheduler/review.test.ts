@@ -3,14 +3,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { REVIEW_MAX_COUNT, selectReviewCandidates } from "./review";
 
 const queue: Array<() => unknown> = [];
+const whereSpy = vi.fn();
+const limitSpy = vi.fn();
+const groupBySpy = vi.fn();
 vi.mock("@/db/client", () => {
   function makeBuilder(): unknown {
     const b: Record<string, unknown> = {
       from: () => b,
-      where: () => b,
+      where: (...args: unknown[]) => {
+        whereSpy(...args);
+        return b;
+      },
       orderBy: () => b,
-      groupBy: () => b,
-      limit: () => b,
+      groupBy: (...args: unknown[]) => {
+        groupBySpy(...args);
+        return b;
+      },
+      limit: (...args: unknown[]) => {
+        limitSpy(...args);
+        return b;
+      },
       then: (onFulfilled: (v: unknown) => unknown) => {
         const handler = queue.shift();
         const result = handler ? handler() : [];
@@ -24,6 +36,9 @@ vi.mock("@/db/client", () => {
 
 beforeEach(() => {
   queue.length = 0;
+  whereSpy.mockClear();
+  limitSpy.mockClear();
+  groupBySpy.mockClear();
 });
 
 describe("selectReviewCandidates", () => {
@@ -77,6 +92,20 @@ describe("selectReviewCandidates", () => {
     );
     const out = await selectReviewCandidates({ userId: "u-1", count: 999 });
     expect(out.length).toBe(REVIEW_MAX_COUNT);
+  });
+
+  it("SQL ビルダ呼び出しに where/groupBy/limit が揃い、userId / correct / since / count が injection されている", async () => {
+    queue.push(() => []);
+    await selectReviewCandidates({ userId: "u-42", count: 7 });
+    // attempts への 1 回目の select: where + groupBy + limit が必ず呼ばれる
+    expect(whereSpy).toHaveBeenCalledTimes(1);
+    expect(groupBySpy).toHaveBeenCalledTimes(1);
+    expect(limitSpy).toHaveBeenCalledTimes(1);
+    // limit(count) は 7 を受け取るはず
+    expect(limitSpy.mock.calls[0]?.[0]).toBe(7);
+    // where の第 1 引数は drizzle の and(...) 結合オブジェクト (非 string で bind 済み)
+    expect(whereSpy.mock.calls[0]?.[0]).toBeDefined();
+    expect(typeof whereSpy.mock.calls[0]?.[0]).not.toBe("string");
   });
 
   it("max(timestamp) が string で返ってきても Date に正規化される (driver 差異対策)", async () => {
