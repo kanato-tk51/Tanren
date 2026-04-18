@@ -67,6 +67,17 @@ describe("session.start with customSpec validation", () => {
         },
       }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // mcq 重複 (length !== 1) も reject (Round 4 厳格化)
+    await expect(
+      caller.session.start({
+        kind: "custom",
+        customSpec: {
+          questionCount: 3,
+          difficulty: { kind: "absolute", level: "junior" },
+          questionTypes: ["mcq", "mcq"],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("MVP 未対応: domains / subdomains / excludeConcepts は BAD_REQUEST", async () => {

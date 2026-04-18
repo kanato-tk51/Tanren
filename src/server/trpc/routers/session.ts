@@ -118,11 +118,13 @@ export const sessionRouter = router({
           });
         }
       }
-      // MVP は mcq 生成のみ。questionTypes が指定されていて mcq 以外を 1 つでも含む場合は reject。
-      // (UI 注記と一致させるため、mcq 混在でも厳密に弾く)
+      // MVP は mcq 生成のみ。UI 注記と一致させるため、正確に ['mcq'] (単一要素) だけ許可する。
+      // ['mcq', 'written'] などの混在、['mcq', 'mcq'] のような重複も reject。
       if (input.customSpec?.questionTypes && input.customSpec.questionTypes.length > 0) {
-        const onlyMcq = input.customSpec.questionTypes.every((t) => t === "mcq");
-        if (!onlyMcq) {
+        const isExactMcqSingleton =
+          input.customSpec.questionTypes.length === 1 &&
+          input.customSpec.questionTypes[0] === "mcq";
+        if (!isExactMcqSingleton) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Custom Session MVP は questionTypes=['mcq'] のみ許可です",
