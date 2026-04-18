@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq } from "drizzle-orm";
+import { after } from "next/server";
 
 import { getDb } from "@/db/client";
 import {
@@ -196,15 +197,16 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
       });
     }
     // 誤答 + reason_given が与えられたときだけ誤概念抽出を走らせる (issue #19)。
-    // LLM 呼び出しなので submit レスポンスをブロックしないよう fire-and-forget に (Round 3 指摘)。
-    // 失敗は console.error でログに残す (Sentry 導入後 #27 に captureException へ差し替え)。
+    // 素の detach promise は Vercel Functions の teardown で切られる可能性があるため、
+    // Next.js の after() で post-response に予約する (Round 4 指摘)。
+    // 失敗は console.error でログに残す (Sentry 導入 #27 後は captureException に差し替え)。
     if (grade.correct === false && input.reasonGiven && input.reasonGiven.trim().length > 0) {
       const reason = input.reasonGiven;
       const userId = input.userId;
       const conceptId = question.conceptId;
       const qPayload = { prompt: question.prompt, answer: question.answer };
       const userAnswer = input.userAnswer;
-      void (async () => {
+      after(async () => {
         try {
           const conceptRow = await getDb()
             .select({ id: concepts.id, name: concepts.name })
@@ -223,22 +225,22 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
            
           console.error("extractAndPersistMisconception failed", err);
         }
-      })();
+      });
     }
-    // 正答 + unresolved な misconceptions があれば resolve に遷移させる (docs/05 §5.8)。
-    // 1 回の正答では早計なので「直近 3 連続正解」を近似条件にする。
-    if (grade.correct === true && input.updateMastery !== false) {
-      void (async () => {
+    // 正答で unresolved な misconceptions があれば resolve に遷移させる (docs/05 §5.8)。
+    // resolve は誤概念履歴側の状態で FSRS とは独立なので updateMastery=false でも走らせる
+    // (Round 4 指摘)。1 回の正答では早計なので「直近 3 連続正解」を近似条件にする。
+    if (grade.correct === true) {
+      const userId = input.userId;
+      const conceptId = question.conceptId;
+      after(async () => {
         try {
-          await maybeResolveMisconceptions({
-            userId: input.userId,
-            conceptId: question.conceptId,
-          });
+          await maybeResolveMisconceptions({ userId, conceptId });
         } catch (err) {
            
           console.error("maybeResolveMisconceptions failed", err);
         }
-      })();
+      });
     }
     return grade;
   }
