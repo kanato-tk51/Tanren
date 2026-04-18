@@ -1,19 +1,27 @@
 import { TRPCError } from "@trpc/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { User } from "@/db/schema";
 
 import { appRouter } from "./index";
 
 // DB クライアントをスタブ。session.start は insert().values().returning() をチェーンで呼ぶ。
+// 他のテストで session.next / submit の DB アクセスを検証するために capture できる形に。
+const valuesSpy = vi.fn();
 vi.mock("@/db/client", () => {
   const returning = vi.fn().mockResolvedValue([{ id: "sess-fake" }]);
-  const values = vi.fn().mockReturnValue({ returning });
+  const values = vi.fn((v: unknown) => {
+    valuesSpy(v);
+    return { returning };
+  });
   const insert = vi.fn().mockReturnValue({ values });
   return {
     getDb: vi.fn().mockReturnValue({ insert }),
-    __getDbMocks: { insert, values, returning },
   };
+});
+
+beforeEach(() => {
+  valuesSpy.mockClear();
 });
 
 describe("session.start with customSpec validation", () => {
@@ -163,21 +171,43 @@ describe("session.start with customSpec validation", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
-  it("正ケース: questionTypes=['mcq'] / thinkingStyles=[one] / concepts=[one] は全て accept し DB insert へ到達", async () => {
-    // 入力バリデーションを全て通過すると getDb().insert(sessions).values().returning() が呼ばれる。
-    // 返り値はモック で { id: 'sess-fake' }。
-    const res = await caller.session.start({
-      kind: "custom",
-      customSpec: {
-        questionCount: 3,
-        difficulty: { kind: "absolute", level: "junior" },
-        questionTypes: ["mcq"],
-        thinkingStyles: ["trade_off"],
-        concepts: ["network.tcp.basics"],
-      },
-    });
+  it("正ケース: accept → insert payload に customSpec / kind='custom' / userId が積まれる", async () => {
+    const inputSpec = {
+      questionCount: 3,
+      difficulty: { kind: "absolute" as const, level: "junior" as const },
+      questionTypes: ["mcq" as const],
+      thinkingStyles: ["trade_off" as const],
+      concepts: ["network.tcp.basics"],
+      updateMastery: false,
+    };
+    const res = await caller.session.start({ kind: "custom", customSpec: inputSpec });
     expect(res.sessionId).toBe("sess-fake");
     expect(res.targetCount).toBe(3);
+
+    // values() payload の中身検証: userId / kind / spec.customSpec が正しく積まれている
+    expect(valuesSpy).toHaveBeenCalledTimes(1);
+    const payload = valuesSpy.mock.calls[0]?.[0] as {
+      userId: string;
+      kind: string;
+      spec: { targetCount: number; pendingQuestionId: null; customSpec: typeof inputSpec };
+    };
+    expect(payload.userId).toBe("u-1");
+    expect(payload.kind).toBe("custom");
+    expect(payload.spec.targetCount).toBe(3);
+    expect(payload.spec.pendingQuestionId).toBeNull();
+    expect(payload.spec.customSpec).toEqual(inputSpec);
+  });
+
+  it("正ケース: kind='daily' (customSpec なし) は insert payload に customSpec を積まない", async () => {
+    await caller.session.start({ kind: "daily", targetCount: 7 });
+    expect(valuesSpy).toHaveBeenCalledTimes(1);
+    const payload = valuesSpy.mock.calls[0]?.[0] as {
+      kind: string;
+      spec: { targetCount: number; customSpec?: unknown };
+    };
+    expect(payload.kind).toBe("daily");
+    expect(payload.spec.targetCount).toBe(7);
+    expect(payload.spec.customSpec).toBeUndefined();
   });
 
   it("MVP 未対応: constraints の実効フィールドがあれば BAD_REQUEST", async () => {
