@@ -142,6 +142,42 @@ describe("fetchSearch", () => {
     expect(out.hits.length).toBe(50);
   });
 
+  it("英数クエリと CJK-only クエリで where チャンク長が異なる (tsvector 経路 opt-in、issue #30)", async () => {
+    // drizzle SQL オブジェクトの内部表現に依存せず、チャンク量で 2 つの経路の差を検出する。
+    // 英数クエリ: attempts 側 OR 3 本 (ilike x3) + tsvector 2 本 + misc 側 OR 1 + tsvector 1
+    // CJK-only:  attempts 側 OR 3 本 + misc 側 ILIKE 1 本のみ
+    const chunkLen = (arg: unknown): number => {
+      let total = 0;
+      const walk = (x: unknown): void => {
+        if (x == null) return;
+        if (Array.isArray(x)) {
+          for (const y of x) walk(y);
+          return;
+        }
+        if (typeof x === "object" && "queryChunks" in (x as object)) {
+          total += 1;
+          walk((x as { queryChunks: unknown }).queryChunks);
+        }
+      };
+      walk(arg);
+      return total;
+    };
+
+    queue.push(() => []);
+    queue.push(() => []);
+    await fetchSearch({ userId: "u-1", q: "race condition" });
+    const asciiLen = whereSpy.mock.calls.reduce((a, c) => a + chunkLen(c[0]), 0);
+
+    whereSpy.mockClear();
+    queue.push(() => []);
+    queue.push(() => []);
+    await fetchSearch({ userId: "u-1", q: "並行性" });
+    const cjkLen = whereSpy.mock.calls.reduce((a, c) => a + chunkLen(c[0]), 0);
+
+    // ASCII 経路は tsvector 分が増えるので CJK-only より多いはず
+    expect(asciiLen).toBeGreaterThan(cjkLen);
+  });
+
   it("domainHits: ドメインごとの件数を降順で集約", async () => {
     queue.push(() => [
       mkAttemptHit({ attemptId: "a-1", domainId: "os" }),

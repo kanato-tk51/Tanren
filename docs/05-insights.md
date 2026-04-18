@@ -163,14 +163,27 @@ questions.prompt / misconceptions.description を横断検索。
 `src/server/insights/search.ts` に集約。SQL injection 対策は drizzle の
 `ilike()` / `eq()` による prepared statement bind で担保 (unit test あり)。
 
-**Phase 5+ (issue #30)**: `tsvector` + GIN index + `pg_trgm` を併用した本格チューニング。
-`attempts.search_tsv` (STORED generated column) は MVP では index として未使用だが
-将来移行時の枝として残してある。将来のインデックス対象:
+**Phase 5+ (issue #30)**: `tsvector` + GIN + `pg_trgm` を併用した本格チューニング **実装済み**。
+真実の源は `src/server/insights/search.ts` と migration `drizzle/0010_search_indexes.sql`。
 
-- `questions.prompt` (attempts JOIN 経由)
-- `attempts.user_answer`
-- `questions.explanation`
-- `misconceptions.description`
+**現在のインデックス構成 (issue #30):**
+
+| テーブル         | カラム                   | 種別               | 用途                    |
+| ---------------- | ------------------------ | ------------------ | ----------------------- |
+| `attempts`       | `search_tsv` (generated) | GIN (tsvector)     | 英数トークン @@ tsquery |
+| `attempts`       | `user_answer`            | GIN (gin_trgm_ops) | ILIKE 加速 (CJK 対応)   |
+| `attempts`       | `feedback`               | GIN (gin_trgm_ops) | ILIKE 加速              |
+| `questions`      | `search_tsv` (generated) | GIN (tsvector)     | 英数トークン @@ tsquery |
+| `questions`      | `prompt`                 | GIN (gin_trgm_ops) | ILIKE 加速              |
+| `misconceptions` | `search_tsv` (generated) | GIN (tsvector)     | 英数トークン @@ tsquery |
+| `misconceptions` | `description`            | GIN (gin_trgm_ops) | ILIKE 加速              |
+
+**検索戦略 (`fetchSearch`):**
+
+1. クエリに ASCII 英数字が含まれる場合: `search_tsv @@ plainto_tsquery('simple', q)` を OR 条件に追加
+   (GIN tsvector 索引で定数時間マッチ、attempts / questions / misconceptions すべて対応)
+2. 常に `ILIKE '%q%'` を OR 条件に残す (日本語 / CJK のフォールバック、pg_trgm GIN 索引で加速)
+3. 両経路を `OR` で結合して単一 SQL で実行 (Postgres プランナが最良索引を選ぶ)
 
 ### UX
 
