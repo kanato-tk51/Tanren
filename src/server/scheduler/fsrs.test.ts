@@ -3,12 +3,15 @@ import { describe, it, expect } from "vitest";
 import { gradeMastery, Rating, scoreToRating } from "./fsrs";
 
 describe("scoreToRating", () => {
-  it("score で Easy/Good/Hard/Again を分岐", () => {
+  it("score で Easy/Good/Hard/Again を分岐 (部分正解 0.5-0.9 未満は Hard)", () => {
     expect(scoreToRating(1.0)).toBe(Rating.Easy);
-    expect(scoreToRating(0.9)).toBe(Rating.Easy);
-    expect(scoreToRating(0.85)).toBe(Rating.Good);
-    expect(scoreToRating(0.7)).toBe(Rating.Good);
-    expect(scoreToRating(0.6)).toBe(Rating.Hard);
+    expect(scoreToRating(0.95)).toBe(Rating.Easy);
+    expect(scoreToRating(0.9)).toBe(Rating.Good);
+    // 部分正解帯
+    expect(scoreToRating(0.85)).toBe(Rating.Hard);
+    expect(scoreToRating(0.7)).toBe(Rating.Hard);
+    expect(scoreToRating(0.5)).toBe(Rating.Hard);
+    // 不正解帯
     expect(scoreToRating(0.49)).toBe(Rating.Again);
     expect(scoreToRating(null)).toBe(Rating.Again);
   });

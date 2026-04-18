@@ -8,11 +8,15 @@ import type { Mastery } from "@/db/schema";
  * - gradeMastery: 現在の mastery と新規 attempt 結果から次回 mastery 値を計算
  */
 
-/** Grade = Again | Hard | Good | Easy (Manual は除外) */
+/**
+ * Grade = Again | Hard | Good | Easy (Manual は除外)。
+ * mcq (0 or 1) は Again / Easy の二値。short / written の部分正解 (0.5 <= score < 0.9) は
+ * Hard として FSRS に送る (docs/02-learning-system.md §2.4 / issue #14 受け入れ基準)。
+ */
 export function scoreToRating(score: number | null): Grade {
   if (score === null) return Rating.Again;
-  if (score >= 0.9) return Rating.Easy;
-  if (score >= 0.7) return Rating.Good;
+  if (score >= 0.95) return Rating.Easy;
+  if (score >= 0.9) return Rating.Good;
   if (score >= 0.5) return Rating.Hard;
   return Rating.Again;
 }
