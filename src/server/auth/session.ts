@@ -15,11 +15,16 @@ type CookieStore = ReadonlyRequestCookies | Awaited<ReturnType<typeof cookies>>;
 type SessionResolution = {
   user: User;
   sessionId: string;
+  /** resolve 時に延長された expiresAt。cookie の再発行に使う */
+  expiresAt: Date;
+  /** dev (non __Host-) セッションか、Passkey (__Host-) セッションか */
+  kind: "passkey" | "dev";
 };
 
 /** `sessions_auth` に新しい行を作り、cookie attribute を返す */
 export async function createSession(userId: string): Promise<{
   sessionId: string;
+  expiresAt: Date;
   cookie: Omit<ResponseCookie, "value" | "name">;
 }> {
   const sessionId = randomUUID();
@@ -33,6 +38,7 @@ export async function createSession(userId: string): Promise<{
 
   return {
     sessionId,
+    expiresAt,
     cookie: {
       httpOnly: true,
       secure: true,
@@ -44,21 +50,20 @@ export async function createSession(userId: string): Promise<{
 }
 
 /**
- * cookie 経由で session を取得。sliding expiry 更新も担当。
- * Passkey (__Host-) と dev ショートカット両方をチェックする。
+ * cookie 経由で session を取得。30 日 sliding expiry の更新も担当。
+ * Passkey (__Host-) と dev ショートカット両方をチェック。
+ * 呼び出し元は返却された `expiresAt` を使って cookie を再発行すること。
  */
 export async function resolveSession(store: CookieStore): Promise<SessionResolution | null> {
-  const sessionId =
-    store.get(SESSION_COOKIE_NAME)?.value ?? store.get(DEV_SESSION_COOKIE_NAME)?.value ?? null;
-
+  const passkeyId = store.get(SESSION_COOKIE_NAME)?.value ?? null;
+  const devId = store.get(DEV_SESSION_COOKIE_NAME)?.value ?? null;
+  const sessionId = passkeyId ?? devId;
   if (!sessionId) return null;
+  const kind: "passkey" | "dev" = passkeyId ? "passkey" : "dev";
 
   const db = getDb();
   const rows = await db
-    .select({
-      session: sessionsAuth,
-      user: users,
-    })
+    .select({ session: sessionsAuth, user: users })
     .from(sessionsAuth)
     .innerJoin(users, eq(users.id, sessionsAuth.userId))
     .where(and(eq(sessionsAuth.id, sessionId), gt(sessionsAuth.expiresAt, new Date())))
@@ -67,13 +72,15 @@ export async function resolveSession(store: CookieStore): Promise<SessionResolut
   const row = rows[0];
   if (!row) return null;
 
-  // Sliding expiry: last_active_at を更新 (expires_at は既に先にしか進めない設計)
+  // 30 日 sliding: アクセス毎に expiresAt を押し出し、cookie も後続で同期延長する
+  const now = new Date();
+  const newExpiresAt = new Date(now.getTime() + SESSION_MAX_AGE_MS);
   await db
     .update(sessionsAuth)
-    .set({ lastActiveAt: new Date() })
+    .set({ lastActiveAt: now, expiresAt: newExpiresAt })
     .where(eq(sessionsAuth.id, sessionId));
 
-  return { user: row.user, sessionId };
+  return { user: row.user, sessionId, expiresAt: newExpiresAt, kind };
 }
 
 /** cookie の破棄とテーブル削除 */

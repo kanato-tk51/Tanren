@@ -22,7 +22,7 @@ vi.mock("@/db/client", () => ({
   getDb: () => builders,
 }));
 
-import { SESSION_COOKIE_NAME } from "./constants";
+import { SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "./constants";
 import { resolveSession } from "./session";
 
 function mockCookieStore(values: Record<string, string>) {
@@ -43,9 +43,12 @@ function fluentSelect(rows: unknown[]) {
   return api;
 }
 
-function fluentUpdate() {
+function fluentUpdateCapture(capture: { set?: unknown }) {
   const api = {
-    set: () => api,
+    set: (v: unknown) => {
+      capture.set = v;
+      return api;
+    },
     where: async () => {},
   };
   return api;
@@ -63,22 +66,32 @@ describe("resolveSession", () => {
 
   it("cookie はあるが sessions_auth に見つからない/期限切れ → null", async () => {
     builders.select.mockReturnValue(fluentSelect([]));
-    const result = await resolveSession(
-      mockCookieStore({ [SESSION_COOKIE_NAME]: "expired-session" }),
-    );
+    const result = await resolveSession(mockCookieStore({ [SESSION_COOKIE_NAME]: "expired" }));
     expect(result).toBeNull();
   });
 
-  it("有効なセッションなら user を返し last_active_at を更新する", async () => {
+  it("有効なセッションなら user と sessionId を返す (passkey kind)", async () => {
     const fakeUser = { id: "u1", email: "x@example.com" };
     builders.select.mockReturnValue(
       fluentSelect([{ session: { id: "s1", userId: "u1" }, user: fakeUser }]),
     );
-    builders.update.mockReturnValue(fluentUpdate());
+    const capture: { set?: { expiresAt?: Date; lastActiveAt?: Date } } = {};
+    builders.update.mockReturnValue(fluentUpdateCapture(capture));
 
+    const before = Date.now();
     const result = await resolveSession(mockCookieStore({ [SESSION_COOKIE_NAME]: "s1" }));
+    const after = Date.now();
+
     expect(result?.user).toEqual(fakeUser);
     expect(result?.sessionId).toBe("s1");
-    expect(builders.update).toHaveBeenCalled();
+    expect(result?.kind).toBe("passkey");
+
+    // sliding expiry の更新: set() に expiresAt と lastActiveAt 両方が乗っている
+    expect(capture.set?.expiresAt).toBeInstanceOf(Date);
+    expect(capture.set?.lastActiveAt).toBeInstanceOf(Date);
+    const expiresTs = capture.set!.expiresAt!.getTime();
+    expect(expiresTs).toBeGreaterThanOrEqual(before + SESSION_MAX_AGE_MS - 1);
+    expect(expiresTs).toBeLessThanOrEqual(after + SESSION_MAX_AGE_MS + 1);
+    expect(result?.expiresAt.getTime()).toBe(expiresTs);
   });
 });

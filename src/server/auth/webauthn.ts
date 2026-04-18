@@ -11,7 +11,7 @@ import type {
   AuthenticatorTransportFuture,
   RegistrationResponseJSON,
 } from "@simplewebauthn/server";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, isNull } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import {
@@ -56,28 +56,33 @@ async function saveChallenge(params: {
   return id;
 }
 
+/**
+ * challenge を原子的に消費する。DELETE ... RETURNING 1 ステートメントで実装。
+ * `expectedUserId` を渡すと、challenge 発行時に束縛した userId と一致しない場合に失敗する。
+ */
 async function consumeChallenge(params: {
   id: string;
   purpose: "register" | "authenticate";
+  expectedUserId?: string | null;
 }): Promise<string | null> {
   const db = getDb();
-  const rows = await db
-    .select()
-    .from(challengesTable)
-    .where(
-      and(
-        eq(challengesTable.id, params.id),
-        eq(challengesTable.purpose, params.purpose),
-        gt(challengesTable.expiresAt, new Date()),
-      ),
-    )
-    .limit(1);
+  const predicates = [
+    eq(challengesTable.id, params.id),
+    eq(challengesTable.purpose, params.purpose),
+    gt(challengesTable.expiresAt, new Date()),
+  ];
+  if (params.expectedUserId === null) {
+    predicates.push(isNull(challengesTable.userId));
+  } else if (params.expectedUserId !== undefined) {
+    predicates.push(eq(challengesTable.userId, params.expectedUserId));
+  }
 
-  const row = rows[0];
-  if (!row) return null;
+  const deleted = await db
+    .delete(challengesTable)
+    .where(and(...predicates))
+    .returning({ challenge: challengesTable.challenge });
 
-  await db.delete(challengesTable).where(eq(challengesTable.id, params.id));
-  return row.challenge;
+  return deleted[0]?.challenge ?? null;
 }
 
 // ───────────────────────────────── Registration ─────────────────────────────────
@@ -121,9 +126,11 @@ export async function verifyRegistration(params: {
   nickname?: string;
 }) {
   const { rpID, origin } = rpConfig();
+  // userId も一致条件に含めて、challenge の取り違えによる別ユーザーへの credential 紐付けを防ぐ
   const expectedChallenge = await consumeChallenge({
     id: params.challengeId,
     purpose: "register",
+    expectedUserId: params.userId,
   });
   if (!expectedChallenge) {
     throw new Error("Challenge not found or expired");
@@ -182,6 +189,7 @@ export async function verifyAuthentication(params: {
   response: AuthenticationResponseJSON;
 }) {
   const { rpID, origin } = rpConfig();
+  // authenticate は発行時 userId=null で束縛対象がないため、expectedUserId は渡さない
   const expectedChallenge = await consumeChallenge({
     id: params.challengeId,
     purpose: "authenticate",
