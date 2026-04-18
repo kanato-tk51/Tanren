@@ -309,8 +309,8 @@ session.finish({ sessionId })
   → { summary: SessionSummary }
 
 // Custom Session
-custom.parse({ raw: string })
-  → { spec: CustomSessionSpec, confidence: number }
+custom.parse({ raw: string })  // raw は trim 後 1..2000 字
+  → { spec: CustomSessionSpec, promptVersion: string, model: string }
 
 custom.preview({ spec })
   → { sampleQuestion: Question }

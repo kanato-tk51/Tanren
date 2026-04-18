@@ -1,0 +1,133 @@
+import { z } from "zod";
+
+import {
+  DIFFICULTY_LEVELS,
+  DOMAIN_IDS,
+  QUESTION_TYPES,
+  THINKING_STYLES,
+} from "@/db/schema/_constants";
+
+/**
+ * CustomSessionSpec (docs/04 §4.3)。
+ * MVP は `absolute` 難易度のみを実装し、relative / numeric / interview は Phase 5+。
+ * thinking_styles / question_types / difficulty は実装 constants (_constants.ts) に合わせる。
+ */
+/**
+ * 受け入れ基準「未指定フィールドは omit」(Issue #17 / docs §4.4.2) を守るため、
+ * パーサ段階ではほぼ全て optional。既定値補完は UI / セッション開始時の責務。
+ * `.strict()` を付けて Structured Outputs 側の additionalProperties:false と挙動を揃える。
+ */
+export const DifficultyAbsoluteSchema = z
+  .object({
+    kind: z.literal("absolute"),
+    level: z.enum(DIFFICULTY_LEVELS),
+  })
+  .strict();
+
+export type DifficultySpec = z.infer<typeof DifficultyAbsoluteSchema>;
+
+/**
+ * 未指定フィールドは omit、空配列は禁止 (受け入れ基準 4 / docs §4.4.2)。
+ * `min(1)` を optional 配列に付けることで「[] は不可、undefined は可」を表現する。
+ * LLM 側には JSON schema の `minItems: 1` + prompt で omit を誘導する。
+ */
+export const CustomSessionSpecSchema = z
+  .object({
+    domains: z.array(z.enum(DOMAIN_IDS)).min(1).optional(),
+    subdomains: z.array(z.string().min(1)).min(1).optional(),
+    concepts: z.array(z.string().min(1)).min(1).optional(),
+    excludeConcepts: z.array(z.string().min(1)).min(1).optional(),
+    thinkingStyles: z.array(z.enum(THINKING_STYLES)).min(1).optional(),
+    questionTypes: z.array(z.enum(QUESTION_TYPES)).min(1).optional(),
+    questionCount: z.number().int().min(1).max(20).optional(),
+    difficulty: DifficultyAbsoluteSchema.optional(),
+    constraints: z
+      .object({
+        language: z.enum(["ja", "en"]).optional(),
+        codeLanguage: z.string().min(1).optional(),
+        timeLimitSec: z.number().int().min(5).max(3600).optional(),
+        mustInclude: z.array(z.string().min(1)).min(1).optional(),
+        avoid: z.array(z.string().min(1)).min(1).optional(),
+      })
+      .strict()
+      .optional(),
+    updateMastery: z.boolean().optional(),
+  })
+  .strict();
+
+export type CustomSessionSpec = z.infer<typeof CustomSessionSpecSchema>;
+
+/**
+ * OpenAI Structured Outputs 用の JSON schema。
+ * - additionalProperties: false を明示 (strict: true で必須)
+ * - optional は required から外す
+ * - enum は 定数から直接埋め込む
+ */
+/**
+ * OpenAI Structured Outputs 用の JSON schema。
+ * - additionalProperties: false + required: [] で未指定フィールドは omit (受け入れ基準)
+ * - Zod schema (.strict()) と整合させる。enum は _constants.ts から引く
+ */
+export const CUSTOM_SESSION_JSON_SCHEMA = {
+  name: "custom_session_spec",
+  strict: true as const,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: [],
+    properties: {
+      domains: {
+        type: "array",
+        minItems: 1,
+        items: { type: "string", enum: [...DOMAIN_IDS] },
+      },
+      subdomains: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+      concepts: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+      excludeConcepts: {
+        type: "array",
+        minItems: 1,
+        items: { type: "string", minLength: 1 },
+      },
+      thinkingStyles: {
+        type: "array",
+        minItems: 1,
+        items: { type: "string", enum: [...THINKING_STYLES] },
+      },
+      questionTypes: {
+        type: "array",
+        minItems: 1,
+        items: { type: "string", enum: [...QUESTION_TYPES] },
+      },
+      questionCount: { type: "integer", minimum: 1, maximum: 20 },
+      difficulty: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "level"],
+        properties: {
+          kind: { type: "string", enum: ["absolute"] },
+          level: { type: "string", enum: [...DIFFICULTY_LEVELS] },
+        },
+      },
+      constraints: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          language: { type: "string", enum: ["ja", "en"] },
+          codeLanguage: { type: "string", minLength: 1 },
+          timeLimitSec: { type: "integer", minimum: 5, maximum: 3600 },
+          mustInclude: {
+            type: "array",
+            minItems: 1,
+            items: { type: "string", minLength: 1 },
+          },
+          avoid: {
+            type: "array",
+            minItems: 1,
+            items: { type: "string", minLength: 1 },
+          },
+        },
+      },
+      updateMastery: { type: "boolean" },
+    },
+  },
+};

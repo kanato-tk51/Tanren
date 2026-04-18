@@ -15,7 +15,7 @@
 
 - ✅「**並行性系の問題を 8 回連続で落としている** — 根本は race condition の概念ズレ」
 - ✅「**ネットワーク分野を 3 週間触れていない** — 以前 80% だった TCP が減衰中」
-- ✅「**edge_case 型は強いが applied_scenario 型は 40%** — 座学はできるが現場対応が弱い」
+- ✅「**edge_case 型は強いが apply 型は 40%** — 座学はできるが現場対応が弱い」
 
 すべての指標は**「次の行動」に直結する問い**とセットで見せる。
 
@@ -23,15 +23,15 @@
 
 ## 5.2. 画面構成 (7つ)
 
-| 画面 | ルート | 機能 |
-|---|---|---|
-| Dashboard | `/insights` | 全体サマリ + Top3 強み / 弱点 / 盲点 / 忘却中 |
-| Mastery Map | `/insights/map` | 知識ツリーのビジュアル化 (サンバースト) |
-| History | `/insights/history` | 時系列の解答履歴 + フィルタ |
-| Search | `/insights/search` | 全文検索 (問題文 / 回答 / 解説) |
-| Domain Detail | `/insights/domain/[id]` | 分野深掘り (正答率 / 思考型別) |
-| Misconceptions | `/insights/misconceptions` | 誤概念トラッカー |
-| Trends | `/insights/trends` | 時系列グラフ (正答率推移など) |
+| 画面           | ルート                     | 機能                                          |
+| -------------- | -------------------------- | --------------------------------------------- |
+| Dashboard      | `/insights`                | 全体サマリ + Top3 強み / 弱点 / 盲点 / 忘却中 |
+| Mastery Map    | `/insights/map`            | 知識ツリーのビジュアル化 (サンバースト)       |
+| History        | `/insights/history`        | 時系列の解答履歴 + フィルタ                   |
+| Search         | `/insights/search`         | 全文検索 (問題文 / 回答 / 解説)               |
+| Domain Detail  | `/insights/domain/[id]`    | 分野深掘り (正答率 / 思考型別)                |
+| Misconceptions | `/insights/misconceptions` | 誤概念トラッカー                              |
+| Trends         | `/insights/trends`         | 時系列グラフ (正答率推移など)                 |
 
 ---
 
@@ -199,8 +199,8 @@ Sub-domains:
 Thinking style breakdown:
   why:          73% ✓
   trade_off:    68% ✓
-  debugging:    38% ⚠️  ← この分野×この思考型が弱い
-  applied:      52%
+  edge_case:    38% ⚠️  ← この分野×この思考型が弱い
+  apply:        52%
 
 Recent attempts: [リスト]
 Misconceptions tracked: [リスト]
@@ -209,7 +209,7 @@ Misconceptions tracked: [リスト]
 ### 得られる気付き
 
 - 「この分野全体は OK でも特定のサブドメインだけ弱い」
-- 「この分野は定義は覚えてるがデバッグ型の問題が苦手」
+- 「この分野は定義は覚えてるが edge_case 型の問題が苦手」
 
 ---
 
@@ -287,15 +287,15 @@ Domain coverage:
 
 ## 5.10. 派生メトリクスの定義
 
-| 名称 | 定義 |
-|---|---|
-| `mastery_pct` | 習得済 (`mastered = 1`) / 全 concept |
-| `weakest` | ≥5 attempt で正答率が低い concept 順 |
-| `blind_spot` | prereq 全て習得済 AND attempt_count = 0 |
-| `decaying` | stability が初回より下がっている concept |
-| `consistency` | 直近30日で学習した日数 / 30 |
-| `style_profile` | 思考スタイル別の正答率プロファイル |
-| `type_profile` | 問題タイプ別の正答率プロファイル |
+| 名称            | 定義                                     |
+| --------------- | ---------------------------------------- |
+| `mastery_pct`   | 習得済 (`mastered = 1`) / 全 concept     |
+| `weakest`       | ≥5 attempt で正答率が低い concept 順     |
+| `blind_spot`    | prereq 全て習得済 AND attempt_count = 0  |
+| `decaying`      | stability が初回より下がっている concept |
+| `consistency`   | 直近30日で学習した日数 / 30              |
+| `style_profile` | 思考スタイル別の正答率プロファイル       |
+| `type_profile`  | 問題タイプ別の正答率プロファイル         |
 
 ---
 
@@ -305,12 +305,12 @@ Domain coverage:
 
 ### 通知種別
 
-| 種類 | タイミング | 条件 | 配信 (MVP 以降) |
-|---|---|---|---|
-| Daily reminder | ユーザー指定時刻 | `next_review <= today` が N 問以上 | メール (Phase 3+) |
-| Blind spot unlocked | 任意 | prereq 完了時 | アプリ内 (Phase 3+) |
-| Weekly digest | 日曜 9:00 | 毎週 | メール (Phase 3+) |
-| Decay warning | 任意 | 主要 concept で stability 30% 低下 | アプリ内 (Phase 3+) |
+| 種類                | タイミング       | 条件                               | 配信 (MVP 以降)     |
+| ------------------- | ---------------- | ---------------------------------- | ------------------- |
+| Daily reminder      | ユーザー指定時刻 | `next_review <= today` が N 問以上 | メール (Phase 3+)   |
+| Blind spot unlocked | 任意             | prereq 完了時                      | アプリ内 (Phase 3+) |
+| Weekly digest       | 日曜 9:00        | 毎週                               | メール (Phase 3+)   |
+| Decay warning       | 任意             | 主要 concept で stability 30% 低下 | アプリ内 (Phase 3+) |
 
 Web Push は Phase 5+、`07.5.5` の検証後。Streak at risk は Streak 自体をやらないため無し。
 
@@ -343,13 +343,13 @@ Web Push は Phase 5+、`07.5.5` の検証後。Streak at risk は Streak 自体
 
 すべての気付きが「行動」に直結するボタンを持つ。
 
-| 気付き | ボタン | アクション |
-|---|---|---|
-| 弱点 concept | 「この concept だけ再出題」 | Custom Session 自動生成 |
-| Blind Spot | 「試してみる」 | Daily Drill に 1 問混入 |
-| 誤概念 | 「この誤解を矯正する問題を出す」 | 矯正指示付きで生成 |
-| Decaying | 「復習キューに追加」 | `next_review` を翌日に前倒し |
-| Style weakness | 「このスタイルで練習」 | Custom Session で指定 |
+| 気付き         | ボタン                           | アクション                   |
+| -------------- | -------------------------------- | ---------------------------- |
+| 弱点 concept   | 「この concept だけ再出題」      | Custom Session 自動生成      |
+| Blind Spot     | 「試してみる」                   | Daily Drill に 1 問混入      |
+| 誤概念         | 「この誤解を矯正する問題を出す」 | 矯正指示付きで生成           |
+| Decaying       | 「復習キューに追加」             | `next_review` を翌日に前倒し |
+| Style weakness | 「このスタイルで練習」           | Custom Session で指定        |
 
 ---
 

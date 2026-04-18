@@ -1,0 +1,148 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildCustomSessionPrompt > snapshot (代表入力) 1`] = `
+{
+  "system": "You are a request parser for a Japanese-language engineering learning app. Convert the user's natural-language request into a CustomSessionSpec JSON. Output strictly as JSON matching the provided schema.",
+  "user": "## Rules (固定)
+
+- **If a field is not mentioned by the user, omit it (don't invent values).** This is the top-priority rule.
+- Optional fields with no hint must be omitted from the output, not filled with defaults. Defaults will be applied by the UI layer.
+- **Array-typed fields (domains / subdomains / concepts / excludeConcepts / thinkingStyles / questionTypes / constraints.mustInclude / constraints.avoid) must either be omitted or non-empty**. Never emit \`[]\`.
+- \`difficulty.kind\` is always \`"absolute"\` in MVP. If the user gives a relative hint, pick the closest absolute level.
+- \`updateMastery\` only when the user explicitly says 「mastery に反映しない」「お試し」 → \`false\`. Otherwise omit.
+- Map vague Japanese (docs/04 §4.4.2):
+  - 「深く考える」「なぜを問う」 → \`thinkingStyles: ["why", "trade_off"]\`
+  - 「基礎」「入門」 → \`difficulty.level: "junior"\` (thinkingStyles は omit)
+  - 「面接レベル」 → \`difficulty.level: "senior"\` + \`thinkingStyles: ["trade_off", "edge_case"]\`
+  - 「実務的」「実装目線」 → \`thinkingStyles: ["apply"]\`
+  - 「違いを比べて」 → \`thinkingStyles: ["compare"]\`
+  - 「エッジケース」「罠」 → \`thinkingStyles: ["edge_case"]\`
+- Map difficulty:
+  - 「入門」「基本」 → \`junior\`
+  - 「中級」「実務」 → \`mid\`
+  - 「上級」「面接」 → \`senior\`
+  - 「エキスパート」「staff」 → \`staff\`
+  - 明示が無ければ difficulty は omit
+- \`domains\` is from the fixed list: programming, dsa, os, network, db, security, distributed, design, devops, tools, low_level, ai_ml, frontend
+- \`thinkingStyles\` is from the fixed list: why, how, trade_off, edge_case, compare, apply (MVP)
+- \`questionTypes\` is from the fixed list: mcq, short, written, cloze, code_read, design
+
+## Available domains
+
+programming, dsa, os, network, db, security, distributed, design, devops, tools, low_level, ai_ml, frontend
+
+## Available thinking styles
+
+why, how, trade_off, edge_case, compare, apply
+
+## Available question types
+
+mcq, short, written, cloze, code_read, design
+
+## Available difficulty levels
+
+beginner, junior, mid, senior, staff, principal
+
+## User request (可変)
+
+"面接レベルで、TCP の輻輳制御について 5 問、なぜそうなっているかを問う"",
+}
+`;
+
+exports[`parseCustomSession snapshots (受け入れ基準: 5 本) > constraints.mustInclude (TLS 1.3) 1`] = `
+{
+  "model": "gpt-5-mini",
+  "promptVersion": "custom-session.v1",
+  "spec": {
+    "constraints": {
+      "mustInclude": [
+        "TLS 1.3",
+      ],
+    },
+    "difficulty": {
+      "kind": "absolute",
+      "level": "mid",
+    },
+    "questionCount": 2,
+  },
+}
+`;
+
+exports[`parseCustomSession snapshots (受け入れ基準: 5 本) > staff レベル (MVP 6 段階) 1`] = `
+{
+  "model": "gpt-5-mini",
+  "promptVersion": "custom-session.v1",
+  "spec": {
+    "difficulty": {
+      "kind": "absolute",
+      "level": "staff",
+    },
+    "questionCount": 3,
+    "thinkingStyles": [
+      "trade_off",
+    ],
+  },
+}
+`;
+
+exports[`parseCustomSession snapshots (受け入れ基準: 5 本) > ドメイン指定 + 実務的 (apply) 1`] = `
+{
+  "model": "gpt-5-mini",
+  "promptVersion": "custom-session.v1",
+  "spec": {
+    "difficulty": {
+      "kind": "absolute",
+      "level": "mid",
+    },
+    "domains": [
+      "network",
+    ],
+    "questionCount": 5,
+    "thinkingStyles": [
+      "apply",
+    ],
+  },
+}
+`;
+
+exports[`parseCustomSession snapshots (受け入れ基準: 5 本) > 基礎 (junior + thinkingStyles omit) 1`] = `
+{
+  "model": "gpt-5-mini",
+  "promptVersion": "custom-session.v1",
+  "spec": {
+    "difficulty": {
+      "kind": "absolute",
+      "level": "junior",
+    },
+    "questionCount": 3,
+  },
+}
+`;
+
+exports[`parseCustomSession snapshots (受け入れ基準: 5 本) > 未指定 omit の最小形 (questionCount だけ) 1`] = `
+{
+  "model": "gpt-5-mini",
+  "promptVersion": "custom-session.v1",
+  "spec": {
+    "questionCount": 1,
+  },
+}
+`;
+
+exports[`parseCustomSession snapshots (受け入れ基準: 5 本) > 面接レベル (senior + trade_off/edge_case) 1`] = `
+{
+  "model": "gpt-5-mini",
+  "promptVersion": "custom-session.v1",
+  "spec": {
+    "difficulty": {
+      "kind": "absolute",
+      "level": "senior",
+    },
+    "questionCount": 5,
+    "thinkingStyles": [
+      "trade_off",
+      "edge_case",
+    ],
+  },
+}
+`;

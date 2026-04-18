@@ -50,55 +50,58 @@
 
 ## 4.3. CustomSessionSpec のスキーマ
 
+真実の源は `src/server/parser/schema.ts` の `CustomSessionSpecSchema` (Zod)。
+MVP では**未指定フィールドは全て omit** する方針 (§4.4.2 参照)。
+したがって UI / セッション開始ロジック側で既定値を補完する責務を持つ。
+命名は実装に合わせて camelCase。
+
 ```typescript
 type CustomSessionSpec = {
-  // 範囲
-  domains?: string[];              // ['os', 'network']
-  subdomains?: string[];           // ['network.tcp']
-  concepts?: string[];             // ['network.tcp.congestion']
-  exclude_concepts?: string[];
+  // 範囲 (すべて optional)
+  domains?: DomainId[]; // ['os', 'network']
+  subdomains?: string[]; // ['network.tcp']
+  concepts?: string[]; // ['network.tcp.congestion']
+  excludeConcepts?: string[];
 
-  // 思考スタイル (複数選択可)
-  thinking_styles: ThinkingStyle[];
+  // 思考スタイル (複数選択可、未指定なら omit)
+  thinkingStyles?: ThinkingStyle[];
 
-  // 問題形式
-  question_types?: QuestionType[];
-  question_count: number;
+  // 問題形式 (未指定なら omit)
+  questionTypes?: QuestionType[];
+  questionCount?: number; // int 1..20 (schema.ts 制約)。未指定なら UI 側で既定 5 を補完
 
-  // 難易度 (絶対 or 相対)
-  difficulty: DifficultySpec;
+  // 難易度 (MVP は absolute のみ)
+  difficulty?: DifficultySpec;
 
   // 制約
   constraints?: {
-    language?: 'ja' | 'en';
-    code_language?: 'python' | 'ts' | 'go' | '...';
-    time_limit_sec?: number;
-    must_include?: string[];     // 「必ず TLS 1.3 を含めて」
-    avoid?: string[];            // 「OSI 参照モデルは避けて」
+    language?: "ja" | "en";
+    codeLanguage?: string;
+    timeLimitSec?: number; // int 5..3600 (schema.ts 制約)
+    mustInclude?: string[]; // 「必ず TLS 1.3 を含めて」
+    avoid?: string[]; // 「OSI 参照モデルは避けて」
   };
 
-  // FSRS 連動
-  update_mastery: boolean;        // この回の成績を mastery に反映するか
+  // FSRS 連動 (未指定なら UI 側で true と解釈)
+  updateMastery?: boolean;
 };
 
+// MVP の実装型 (src/db/schema/_constants.ts THINKING_STYLES と同期)。
+// 当初 docs で挙げていた memorization / design / code_reading などの細粒度は
+// Phase 5+ 以降で追加検討。MVP は 6 スタイルに圧縮している。
 type ThinkingStyle =
-  | 'memorization'
-  | 'why'
-  | 'comparison'
-  | 'trade_off'
-  | 'debugging'
-  | 'design'
-  | 'edge_case'
-  | 'code_reading'
-  | 'applied_scenario'
-  | 'historical'
-  | 'computation';
+  | "why" // なぜそうなっているか
+  | "how" // どう動くか / 手順
+  | "trade_off" // 選択肢の比較検討
+  | "edge_case" // 例外 / 罠 / 境界
+  | "compare" // 2 者の違いを説明
+  | "apply"; // 実務適用 / シナリオ
 
-type DifficultySpec =
-  | { kind: 'absolute'; level: 'beginner' | 'junior' | 'mid' | 'senior' | 'staff' | 'principal' }
-  | { kind: 'relative'; offset: -2 | -1 | 0 | +1 | +2 }   // 自分の平均から
-  | { kind: 'numeric'; value: number /* 1-10 */ }
-  | { kind: 'interview'; company_tier: 'faang' | 'startup' | 'generic' };
+// MVP は absolute のみ。relative / numeric / interview は Phase 5+。
+type DifficultySpec = {
+  kind: "absolute";
+  level: "beginner" | "junior" | "mid" | "senior" | "staff" | "principal";
+};
 ```
 
 ---
@@ -111,36 +114,44 @@ type DifficultySpec =
 
 ### 4.4.2. パーサプロンプト
 
+真実の source は `prompts/parsing/custom-session.v1.md`。以下は抜粋 (doc として維持)。
+OpenAI の自動 prompt caching (ADR-0005) のため、**固定部 (Rules / Available lists) を先頭に、可変部 (User request) を末尾** に置く。
+
 ```
 <system>
-You are a request parser for a learning app.
+You are a request parser for a Japanese-language engineering learning app.
 Convert the user's natural-language request into a CustomSessionSpec JSON.
 </system>
 
 <user>
-## User request
-"{raw}"
+## Rules (固定)
+- If a field is not mentioned, omit it (don't invent). 既定値は UI 側で補完する。
+- Array-typed fields は omit か非空配列のどちらか。`[]` は禁止。
+- Map vague Japanese:
+    「深く考える」 → thinkingStyles: ["why", "trade_off"]
+    「基礎」       → difficulty.level: junior (thinkingStyles は omit)
+    「面接レベル」 → senior + thinkingStyles: ["trade_off", "edge_case"]
+    「実務的」     → thinkingStyles: ["apply"]
+    「違いを比べて」 → thinkingStyles: ["compare"]
+    「エッジケース」「罠」 → thinkingStyles: ["edge_case"]
 
-## Available domains
+## Available domains (固定)
 [programming, dsa, os, network, db, security, distributed, design,
  devops, tools, low_level, ai_ml, frontend]
 
-## Available thinking styles
-[memorization, why, comparison, trade_off, debugging, design, edge_case,
- code_reading, applied_scenario, historical, computation]
+## Available thinking styles (固定)
+[why, how, trade_off, edge_case, compare, apply]
 
-## Rules
-- If a field is not mentioned, omit it (don't invent).
-- Map vague Japanese:
-    「深く考える」 → trade_off | edge_case | why
-    「基礎」       → junior + memorization
-    「面接レベル」 → senior + mixed styles
-    「実務的」     → applied_scenario
-
-## Output
-Strict JSON matching CustomSessionSpec schema.
+## User request (可変、末尾)
+"{raw}"
 </user>
 ```
+
+真実の源の一本化:
+
+- **Zod schema (`src/server/parser/schema.ts` の `CustomSessionSpecSchema`) が single source of truth**。
+- `CUSTOM_SESSION_JSON_SCHEMA` は OpenAI Structured Outputs 用の手動同期 ミラー (optional/required, minItems, minLength を揃える)。
+- prompt テンプレは LLM 向けの誘導で、enum / 制約の追加は Zod → JSON schema → prompt の順で更新する。
 
 ### 4.4.3. パース結果のユーザー確認
 
@@ -192,6 +203,7 @@ Senior level means:
 ### 4.6.2. 相対難易度 (+1, -1 など)
 
 ユーザーの mastery から「今の到達レベル」を推定し、そこから相対で指定:
+
 - 該当 concept の現在到達レベルが `junior` のとき
 - `+1` 指定 → `mid`
 - `+2` 指定 → `senior`
@@ -237,9 +249,9 @@ N 問生成 → 出題 → 採点 (通常ループと同じ)
 ```
 📁 My Templates
   ├─ TLS 深掘り (5問、記述、senior、trade_off)
-  ├─ 分散システム面接対策 (10問、mixed、staff)
+  ├─ 分散システム面接対策 (10問、staff、trade_off + edge_case)
   ├─ 今週作ったコードから出題 (Phase 2)
-  └─ SQL パフォーマンス (applied_scenario、debugging)
+  └─ SQL パフォーマンス (apply + edge_case)
 ```
 
 ### 4.8.1. Template の構造
@@ -268,19 +280,22 @@ CREATE TABLE session_templates (
 
 ### 4.9.1. デフォルト: mastery に反映
 
-`update_mastery: true` の場合:
+`updateMastery: true` の場合:
+
 - Custom Session の結果も FSRS に投入
 - Mastery が更新される
 
 ### 4.9.2. オプション: 成績を記録しない
 
-`update_mastery: false` の場合:
+`updateMastery: false` の場合:
+
 - 「お試しモード」として気楽に難問を試せる
 - 履歴には残るが FSRS には影響しない
 
 ### 4.9.3. 未登録 concept の扱い
 
 Custom で「存在しない concept (例: `network.tcp.bbrv2`)」が出たら:
+
 1. **動的に concept ノードを追加** → mastery tracking 対象にするか確認
 2. ユーザー承認後、知識ツリーに組み込む
 
@@ -296,7 +311,7 @@ Custom で「存在しない concept (例: `network.tcp.bbrv2`)」が出たら:
 - `gpt-5-mini` によるパース
 - **パース結果を読み取り専用カードで表示** (違和感あれば自然言語で再入力)。編集可能フォームは MVP では作らない
 - 既存生成プロンプトへの `thinking_style` 注入
-- 絶対難易度のみサポート (`beginner / junior / mid / senior`)
+- 絶対難易度は 6 段階全て受け入れる (`beginner / junior / mid / senior / staff / principal`)。相対 / 数値 / 面接 kind は Phase 5+。
 
 ### 4.10.2. Phase 2 で追加
 
