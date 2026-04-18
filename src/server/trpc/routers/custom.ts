@@ -12,13 +12,12 @@ export const customRouter = router({
   parse: protectedProcedure
     .input(
       z.object({
-        // 空白だけの入力を受理しないよう trim() 後に min(1) を効かせる。
-        // max は 2000 字 (LLM コンテキストを圧迫しない上限)。
+        // 先に trim してから min/max を効かせる (末尾空白で max を誤発火させないため)。
+        // min(1) で whitespace-only を reject、max(2000) は LLM コンテキスト保護。
         raw: z
           .string()
-          .max(2000)
           .transform((s) => s.trim())
-          .pipe(z.string().min(1, "空の入力は parse できません")),
+          .pipe(z.string().min(1, "空の入力は parse できません").max(2000)),
       }),
     )
     .mutation(async ({ input }) => {

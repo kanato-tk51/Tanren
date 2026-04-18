@@ -68,7 +68,7 @@ type CustomSessionSpec = {
 
   // 問題形式 (未指定なら omit)
   questionTypes?: QuestionType[];
-  questionCount?: number; // 1-20、未指定なら UI 側で既定 5 を補完
+  questionCount?: number; // int 1..20 (schema.ts 制約)。未指定なら UI 側で既定 5 を補完
 
   // 難易度 (MVP は absolute のみ)
   difficulty?: DifficultySpec;
@@ -77,7 +77,7 @@ type CustomSessionSpec = {
   constraints?: {
     language?: "ja" | "en";
     codeLanguage?: string;
-    timeLimitSec?: number;
+    timeLimitSec?: number; // int 5..3600 (schema.ts 制約)
     mustInclude?: string[]; // 「必ず TLS 1.3 を含めて」
     avoid?: string[]; // 「OSI 参照モデルは避けて」
   };
@@ -273,14 +273,14 @@ CREATE TABLE session_templates (
 
 ### 4.9.1. デフォルト: mastery に反映
 
-`update_mastery: true` の場合:
+`updateMastery: true` の場合:
 
 - Custom Session の結果も FSRS に投入
 - Mastery が更新される
 
 ### 4.9.2. オプション: 成績を記録しない
 
-`update_mastery: false` の場合:
+`updateMastery: false` の場合:
 
 - 「お試しモード」として気楽に難問を試せる
 - 履歴には残るが FSRS には影響しない
