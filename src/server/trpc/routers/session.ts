@@ -51,18 +51,15 @@ async function loadSession(sessionId: string, userId: string) {
 
 async function pickConceptForDrill(userId: string, requiredDifficulty?: DifficultyLevel) {
   // Daily Drill の優先度アルゴリズム (docs/06 §6.4) に委譲。
-  // due / blind_spot のどちらも空 (= mastered な concept が無く、かつ prereqs が空の concept も無い)
-  // だと候補が 0 件になる。MVP の seed (10 concept) では prereqs なし concept が複数あり bootstrap 時も候補が埋まるが、
-  // 念のため PRECONDITION_FAILED でクライアントに状況を知らせる。
-  // Custom Session の difficulty 指定時は、上位 10 件からその難易度を許容する concept を選ぶ。
+  // due / blind_spot のどちらも空だと候補が 0 件になるので PRECONDITION_FAILED。
+  // Custom Session の difficulty 指定時は selectDailyCandidates の difficultyFilter を使って
+  // concept 総数が増えても上位に埋もれないよう scoring/slice の前に filter する。
   const candidates = await selectDailyCandidates({
     userId,
-    count: requiredDifficulty ? 10 : 1,
+    count: 1,
+    difficultyFilter: requiredDifficulty,
   });
-  const compatible = requiredDifficulty
-    ? candidates.filter((c) => c.concept.difficultyLevels.includes(requiredDifficulty))
-    : candidates;
-  if (compatible[0]) return compatible[0].concept;
+  if (candidates[0]) return candidates[0].concept;
   throw new TRPCError({
     code: "PRECONDITION_FAILED",
     message: requiredDifficulty
