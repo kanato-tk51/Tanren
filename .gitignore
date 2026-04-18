@@ -22,7 +22,7 @@ next-env.d.ts
 # --- Drizzle ---
 *.db
 *.db-journal
-drizzle/meta/
+# drizzle/meta/ は journal + snapshot を track する (本番 migrate で必要)
 .drizzle/
 
 # --- Vercel ---

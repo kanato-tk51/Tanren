@@ -1,10 +1,11 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import {
   attempts,
   concepts,
+  misconceptions,
   questions,
   sessions,
   type NewAttempt,
@@ -52,6 +53,38 @@ async function loadQuestion(questionId: string): Promise<Question> {
   const q = rows[0];
   if (!q) throw new TRPCError({ code: "NOT_FOUND", message: `unknown question: ${questionId}` });
   return q;
+}
+
+/**
+ * 同 concept で直近 3 件連続で正解していたら、その concept の unresolved misconception を
+ * `resolved=true` に遷移させる (docs/05 §5.8 「矯正できたら resolved=1」の近似)。
+ * 厳密には「その misconception が直接矯正されたか」まで見ないが、MVP ではユーザーが
+ * 同 concept で連続正答 = 概ね誤解が解けた、という近似で運用する。
+ */
+async function maybeResolveMisconceptions(params: {
+  userId: string;
+  conceptId: string;
+}): Promise<void> {
+  const STREAK_TO_RESOLVE = 3;
+  const db = getDb();
+  const recent = await db
+    .select({ correct: attempts.correct })
+    .from(attempts)
+    .where(and(eq(attempts.userId, params.userId), eq(attempts.conceptId, params.conceptId)))
+    .orderBy(desc(attempts.createdAt))
+    .limit(STREAK_TO_RESOLVE);
+  if (recent.length < STREAK_TO_RESOLVE) return;
+  if (!recent.every((a) => a.correct === true)) return;
+  await db
+    .update(misconceptions)
+    .set({ resolved: true })
+    .where(
+      and(
+        eq(misconceptions.userId, params.userId),
+        eq(misconceptions.conceptId, params.conceptId),
+        eq(misconceptions.resolved, false),
+      ),
+    );
 }
 
 /** session が呼び出し元ユーザーのものであることを確認。別 user の session への書き込みを防ぐ */
@@ -163,31 +196,49 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
       });
     }
     // 誤答 + reason_given が与えられたときだけ誤概念抽出を走らせる (issue #19)。
-    // mastery と違って updateMastery=false でも走らせる (学習体験に関わるログ)。
-    // LLM 呼び出しなので失敗は UX を止めないよう try/catch で握りつぶす (Sentry で可視化)。
+    // LLM 呼び出しなので submit レスポンスをブロックしないよう fire-and-forget に (Round 3 指摘)。
+    // 失敗は console.error でログに残す (Sentry 導入後 #27 に captureException へ差し替え)。
     if (grade.correct === false && input.reasonGiven && input.reasonGiven.trim().length > 0) {
-      try {
-        const conceptRow = await getDb()
-          .select({ id: concepts.id, name: concepts.name })
-          .from(concepts)
-          .where(eq(concepts.id, question.conceptId))
-          .limit(1);
-        if (conceptRow[0]) {
+      const reason = input.reasonGiven;
+      const userId = input.userId;
+      const conceptId = question.conceptId;
+      const qPayload = { prompt: question.prompt, answer: question.answer };
+      const userAnswer = input.userAnswer;
+      void (async () => {
+        try {
+          const conceptRow = await getDb()
+            .select({ id: concepts.id, name: concepts.name })
+            .from(concepts)
+            .where(eq(concepts.id, conceptId))
+            .limit(1);
+          if (!conceptRow[0]) return;
           await extractAndPersistMisconception({
-            userId: input.userId,
+            userId,
             concept: conceptRow[0],
-            question: { prompt: question.prompt, answer: question.answer },
-            userAnswer: input.userAnswer,
-            reasonGiven: input.reasonGiven,
+            question: qPayload,
+            userAnswer,
+            reasonGiven: reason,
           });
+        } catch (err) {
+           
+          console.error("extractAndPersistMisconception failed", err);
         }
-      } catch (err) {
-        // 誤概念抽出の失敗は採点結果の返却を妨げない (docs/03 §3.4.1) が、
-        // 完全に沈黙させると原因調査できないため console.error でログに残す。
-        // Sentry 導入後 (#27) は captureException に置き換える。
-         
-        console.error("extractAndPersistMisconception failed", err);
-      }
+      })();
+    }
+    // 正答 + unresolved な misconceptions があれば resolve に遷移させる (docs/05 §5.8)。
+    // 1 回の正答では早計なので「直近 3 連続正解」を近似条件にする。
+    if (grade.correct === true && input.updateMastery !== false) {
+      void (async () => {
+        try {
+          await maybeResolveMisconceptions({
+            userId: input.userId,
+            conceptId: question.conceptId,
+          });
+        } catch (err) {
+           
+          console.error("maybeResolveMisconceptions failed", err);
+        }
+      })();
     }
     return grade;
   }
