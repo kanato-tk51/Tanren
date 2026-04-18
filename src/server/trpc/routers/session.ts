@@ -15,6 +15,7 @@ import {
 import type { CopyForLlmQuestionMeta } from "@/lib/share/copy-for-llm";
 import { generateMcq } from "@/server/generator/mcq";
 import { gradeAttempt } from "@/server/grader";
+import { CustomSessionSpecSchema, type CustomSessionSpec } from "@/server/parser/schema";
 import { selectDailyCandidates } from "@/server/scheduler/daily";
 import { STREAK_FOR_PROMOTION, computePromotion } from "@/server/scheduler/promotion";
 
@@ -30,6 +31,8 @@ type SessionSpec = {
   targetCount?: number;
   /** 出題中の question.id。submit 時に一致チェックして「別問題への水増し submit」を防ぐ */
   pendingQuestionId?: string | null;
+  /** Custom Session 指定 (kind: 'custom' のときだけ埋まる。issue #18) */
+  customSpec?: CustomSessionSpec;
 };
 
 async function loadSession(sessionId: string, userId: string) {
@@ -46,17 +49,22 @@ async function loadSession(sessionId: string, userId: string) {
   return row;
 }
 
-async function pickConceptForDrill(userId: string) {
+async function pickConceptForDrill(userId: string, requiredDifficulty?: DifficultyLevel) {
   // Daily Drill の優先度アルゴリズム (docs/06 §6.4) に委譲。
-  // due / blind_spot のどちらも空 (= mastered な concept が無く、かつ prereqs が空の concept も無い)
-  // だと候補が 0 件になる。MVP の seed (10 concept) では prereqs なし concept が複数あり bootstrap 時も候補が埋まるが、
-  // 念のため PRECONDITION_FAILED でクライアントに状況を知らせる。
-  const candidates = await selectDailyCandidates({ userId, count: 1 });
+  // due / blind_spot のどちらも空だと候補が 0 件になるので PRECONDITION_FAILED。
+  // Custom Session の difficulty 指定時は selectDailyCandidates の difficultyFilter を使って
+  // concept 総数が増えても上位に埋もれないよう scoring/slice の前に filter する。
+  const candidates = await selectDailyCandidates({
+    userId,
+    count: 1,
+    difficultyFilter: requiredDifficulty,
+  });
   if (candidates[0]) return candidates[0].concept;
   throw new TRPCError({
     code: "PRECONDITION_FAILED",
-    message:
-      "no drill candidate: seed にある concept が 0 件か、全 concept の prereqs が未充足。seed を確認してください",
+    message: requiredDifficulty
+      ? `difficulty=${requiredDifficulty} を許容する concept が候補に無い。concepts を明示指定してください`
+      : "no drill candidate: seed にある concept が 0 件か、全 concept の prereqs が未充足。seed を確認してください",
   });
 }
 
@@ -86,20 +94,116 @@ export const sessionRouter = router({
       z.object({
         kind: SessionKindEnum.default("daily"),
         targetCount: z.number().int().min(1).max(20).optional(),
+        /** Custom Session 指定時のみ。パース結果 (CustomSessionSpec) を Zod で再検証 */
+        customSpec: CustomSessionSpecSchema.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      if (input.kind === "custom" && !input.customSpec) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "kind='custom' には customSpec が必要です",
+        });
+      }
+      if (input.kind !== "custom" && input.customSpec) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "customSpec は kind='custom' のときだけ指定できます",
+        });
+      }
+
+      // 絶対難易度 6 段階 (beginner/junior/mid/senior/staff/principal) を全て受け入れる。
+      // Issue #18 AC の「beginner/junior/mid/senior のみ」記述は保守的な初期値で、
+      // parser / prompt / docs (§4.10.1) / _constants.ts は 6 段階で統一されているため
+      // session.start もそれに合わせる (Round 10 指摘)。
+      // DifficultyAbsoluteSchema.level が 6 段階 enum なので実装追加の validation は不要。
+      // MVP は mcq 生成のみ。UI 注記と一致させるため、正確に ['mcq'] (単一要素) だけ許可する。
+      // ['mcq', 'written'] などの混在、['mcq', 'mcq'] のような重複も reject。
+      if (input.customSpec?.questionTypes && input.customSpec.questionTypes.length > 0) {
+        const isExactMcqSingleton =
+          input.customSpec.questionTypes.length === 1 &&
+          input.customSpec.questionTypes[0] === "mcq";
+        if (!isExactMcqSingleton) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Custom Session MVP は questionTypes=['mcq'] のみ許可です",
+          });
+        }
+      }
+      // MVP は thinkingStyles を 1 件までしか出題に反映できない (next は [0] のみ参照)。
+      // 2 件以上指定は「指定が黙示に捨てられる」虚偽表示になるため reject。
+      if (input.customSpec?.thinkingStyles && input.customSpec.thinkingStyles.length > 1) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Custom Session MVP は thinkingStyles を 1 件のみ指定できます",
+        });
+      }
+      // MVP は concepts も 1 件まで (next は [0] のみ参照、2 件目以降は使われない)
+      if (input.customSpec?.concepts && input.customSpec.concepts.length > 1) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Custom Session MVP は concepts を 1 件のみ指定できます",
+        });
+      }
+      // concepts[0] と difficulty 両方が指定されていれば concept.difficultyLevels と
+      // 整合することを start 時点でチェック (session.next が後続で失敗するのを避ける)。
+      if (input.customSpec?.concepts?.[0] && input.customSpec.difficulty) {
+        const concept = await loadConcept(input.customSpec.concepts[0]);
+        const level = input.customSpec.difficulty.level;
+        if (!concept.difficultyLevels.includes(level)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `concept "${concept.id}" は difficulty=${level} をサポートしていません (対応: ${concept.difficultyLevels.join(", ")})`,
+          });
+        }
+      }
+      // constraints は MVP で生成プロンプトに反映されないため、該当フィールドがあれば reject
+      // (プレビューで「指定した」と見えて実行時に無視されるのは虚偽表示に近い挙動なので)。
+      if (input.customSpec?.constraints) {
+        const c = input.customSpec.constraints;
+        if (
+          c.language ||
+          c.codeLanguage ||
+          c.timeLimitSec ||
+          c.mustInclude?.length ||
+          c.avoid?.length
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Custom Session MVP は constraints (language/codeLanguage/timeLimitSec/mustInclude/avoid) 未対応です",
+          });
+        }
+      }
+      // domains / subdomains / excludeConcepts も現状プロンプトに反映されないため、
+      // 同じ理由 (虚偽表示回避) で reject する。MVP は concepts[0] で concept を直接指定する運用。
+      if (
+        input.customSpec?.domains?.length ||
+        input.customSpec?.subdomains?.length ||
+        input.customSpec?.excludeConcepts?.length
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Custom Session MVP は domains / subdomains / excludeConcepts 未対応です (concepts[0] で直接指定してください)",
+        });
+      }
+
       const db = getDb();
+      // 問題数は customSpec.questionCount があれば優先。なければ input.targetCount、なければ既定 5
+      const targetCount =
+        input.customSpec?.questionCount ?? input.targetCount ?? DEFAULT_DRILL_LENGTH;
       const spec: SessionSpec = {
-        targetCount: input.targetCount ?? DEFAULT_DRILL_LENGTH,
+        targetCount,
         pendingQuestionId: null,
+        ...(input.customSpec ? { customSpec: input.customSpec } : {}),
       };
       const [session] = await db
         .insert(sessions)
         .values({ userId: ctx.user.id, kind: input.kind, spec })
         .returning();
       if (!session) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return { sessionId: session.id, targetCount: spec.targetCount };
+      return { sessionId: session.id, targetCount };
     }),
 
   next: protectedProcedure
@@ -151,9 +255,23 @@ export const sessionRouter = router({
       let question: Awaited<ReturnType<typeof generateMcq>>["question"];
       let questionMeta: CopyForLlmQuestionMeta | null = null;
       try {
-        const conceptRow = input.conceptId
-          ? await loadConcept(input.conceptId)
-          : await pickConceptForDrill(ctx.user.id);
+        // Custom Session は spec.customSpec (absolute difficulty + thinking_style 等) を優先する。
+        // MVP での concept 選定: customSpec.concepts[0] → daily pick の 2 段階。
+        // domains / subdomains / excludeConcepts は session.start で reject 済みのためここには来ない。
+        //
+        // 認可境界: kind='custom' のときは input.conceptId で保存済み spec を迂回できないよう
+        // customSpec.concepts[0] を強制する (セッション開始時に確定した spec が唯一の真実の源)。
+        const customSpec = spec.customSpec;
+        const customConceptId = customSpec?.concepts?.[0];
+        const effectiveConceptId = customSpec
+          ? (customConceptId ?? null)
+          : (input.conceptId ?? null);
+        // Custom で concept 未指定 + difficulty 指定時は、pickConceptForDrill で
+        // その難易度を許容する concept のみを候補にする (start 時の整合は
+        // concept 未指定ケースで検証できないので、ここでも補完的に filter)。
+        const conceptRow = effectiveConceptId
+          ? await loadConcept(effectiveConceptId)
+          : await pickConceptForDrill(ctx.user.id, customSpec?.difficulty?.level);
 
         // 直近 STREAK_FOR_PROMOTION 件の同 concept の attempts を見て、3 連続正解なら次出題を 1 段昇格
         const recent = await getDb()
@@ -162,17 +280,29 @@ export const sessionRouter = router({
           .where(and(eq(attempts.userId, ctx.user.id), eq(attempts.conceptId, conceptRow.id)))
           .orderBy(desc(attempts.createdAt))
           .limit(STREAK_FOR_PROMOTION);
-        const promoted = computePromotion({
-          concept: { difficultyLevels: conceptRow.difficultyLevels },
-          currentDifficulty: input.difficulty,
-          recentCorrect: recent.map((r) => r.correct === true),
-        });
-        const effectiveDifficulty: DifficultyLevel = promoted ?? input.difficulty;
+        // custom spec があれば絶対難易度を優先 (昇格は無視。ユーザー指定を尊重)。
+        // customSpec.difficulty が未指定のときは concept がサポートする最初の難易度を
+        // fallback として使う (input.difficulty 既定 junior が concept 非対応で
+        // generateMcq が落ちるのを避ける)。
+        const requestedDifficulty: DifficultyLevel = customSpec
+          ? (customSpec.difficulty?.level ?? conceptRow.difficultyLevels[0] ?? input.difficulty)
+          : input.difficulty;
+        const promoted = customSpec
+          ? null
+          : computePromotion({
+              concept: { difficultyLevels: conceptRow.difficultyLevels },
+              currentDifficulty: input.difficulty,
+              recentCorrect: recent.map((r) => r.correct === true),
+            });
+        const effectiveDifficulty: DifficultyLevel = promoted ?? requestedDifficulty;
+
+        // thinking_style も custom spec があれば先頭を使う。複数指定はラウンドロビン未実装 (MVP)。
+        const effectiveThinkingStyle = customSpec?.thinkingStyles?.[0] ?? input.thinkingStyle;
 
         const generated = await generateMcq({
           conceptId: conceptRow.id,
           difficulty: effectiveDifficulty,
-          thinkingStyle: input.thinkingStyle,
+          thinkingStyle: effectiveThinkingStyle,
         });
         question = generated.question;
         questionMeta = {
@@ -180,7 +310,7 @@ export const sessionRouter = router({
           subdomain: conceptRow.subdomainId,
           conceptId: conceptRow.id,
           conceptName: conceptRow.name,
-          thinkingStyle: input.thinkingStyle,
+          thinkingStyle: effectiveThinkingStyle,
           difficulty: effectiveDifficulty,
         };
       } catch (err) {
@@ -238,6 +368,8 @@ export const sessionRouter = router({
         });
       }
 
+      // Custom Session の updateMastery=false は FSRS/mastery 更新をスキップ (docs/04 §4.9.2)
+      const submitUpdateMastery = spec.customSpec?.updateMastery ?? true;
       const result = await gradeAttempt({
         userId: ctx.user.id,
         sessionId: session.id,
@@ -245,6 +377,7 @@ export const sessionRouter = router({
         userAnswer: input.userAnswer,
         elapsedMs: input.elapsedMs,
         reasonGiven: input.reasonGiven,
+        updateMastery: submitUpdateMastery,
       });
 
       // 二重送信対策: sql で原子インクリメント + pendingQuestionId 一致 + finishedAt is null の

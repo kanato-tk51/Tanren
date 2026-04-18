@@ -45,6 +45,13 @@ export type SelectDailyInput = {
   userId: string;
   count: number;
   now?: Date;
+  /**
+   * 与えられた場合、この difficulty を `concept.difficultyLevels` に含む concept のみに
+   * 候補を絞ってから上位 count 件を返す。Custom Session で difficulty を指定した場合に
+   * 「候補が上位でしか切られず、下位に唯一の match が埋もれる」問題を避けるため、
+   * filter は scoring/slicing の前に適用する。
+   */
+  difficultyFilter?: string;
 };
 
 /**
@@ -60,8 +67,14 @@ export async function selectDailyCandidates(input: SelectDailyInput): Promise<Da
     db.select().from(mastery).where(eq(mastery.userId, input.userId)),
   ]);
 
+  const filtered = input.difficultyFilter
+    ? conceptRows.filter((c) =>
+        c.difficultyLevels.includes(input.difficultyFilter as (typeof c.difficultyLevels)[number]),
+      )
+    : conceptRows;
+
   return rankDailyCandidates({
-    concepts: conceptRows,
+    concepts: filtered,
     masteries: masteryRows,
     count: input.count,
     now,
