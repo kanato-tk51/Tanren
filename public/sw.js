@@ -82,6 +82,8 @@ async function cacheFirst(request) {
   const cached = await cache.match(request);
   if (cached) return cached;
   const response = await fetch(request);
-  if (response.ok) cache.put(request, response.clone());
+  // cache.put を待ってから返すことで、レスポンス直後の SW 終了による書き込み欠損を防ぐ
+  // (Codex Round 2 指摘: await/waitUntil なしは Cache-First が不安定)
+  if (response.ok) await cache.put(request, response.clone());
   return response;
 }
