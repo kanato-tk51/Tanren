@@ -1,6 +1,15 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, Loader2, Sparkles, Undo2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Bookmark,
+  BookmarkCheck,
+  Loader2,
+  Sparkles,
+  Trash2,
+  Undo2,
+} from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -55,7 +64,13 @@ export function CustomScreen({
   const parseMutation = trpc.custom.parse.useMutation();
   const startMutation = trpc.session.start.useMutation();
   const nextMutation = trpc.session.next.useMutation();
+  const templatesQuery = trpc.custom.listTemplates.useQuery();
+  const saveTemplate = trpc.custom.saveTemplate.useMutation();
+  const useTemplateMut = trpc.custom.useTemplate.useMutation();
+  const deleteTemplateMut = trpc.custom.deleteTemplate.useMutation();
+  const utils = trpc.useUtils();
   const { reset, setSession, setQuestion } = useDrillStore();
+  const [savingName, setSavingName] = useState("");
 
   const onParse = useCallback(async () => {
     setError(null);
@@ -108,6 +123,49 @@ export function CustomScreen({
     setPhase({ kind: "input" });
   }, [reset]);
 
+  const onSaveTemplate = useCallback(async () => {
+    if (phase.kind !== "previewing") return;
+    const name = savingName.trim();
+    if (name.length === 0) {
+      setError("テンプレ名を入力してください");
+      return;
+    }
+    try {
+      await saveTemplate.mutateAsync({ name, rawRequest: phase.raw, spec: phase.spec });
+      setSavingName("");
+      await utils.custom.listTemplates.invalidate();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "テンプレ保存に失敗しました");
+    }
+  }, [phase, savingName, saveTemplate, utils]);
+
+  const onUseTemplate = useCallback(
+    async (id: string) => {
+      setError(null);
+      try {
+        const t = await useTemplateMut.mutateAsync({ id });
+        setRaw(t.rawRequest ?? "");
+        setPhase({ kind: "previewing", raw: t.rawRequest ?? "", spec: t.spec });
+        await utils.custom.listTemplates.invalidate();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "テンプレの読み込みに失敗しました");
+      }
+    },
+    [useTemplateMut, utils],
+  );
+
+  const onDeleteTemplate = useCallback(
+    async (id: string) => {
+      try {
+        await deleteTemplateMut.mutateAsync({ id });
+        await utils.custom.listTemplates.invalidate();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "テンプレの削除に失敗しました");
+      }
+    },
+    [deleteTemplateMut, utils],
+  );
+
   if (phase.kind === "running") {
     return <DrillScreen onReset={backToInput} skipInitialStartCard />;
   }
@@ -129,6 +187,74 @@ export function CustomScreen({
           disabled={phase.kind === "previewing"}
         />
         {phase.kind === "previewing" && <SpecPreview spec={phase.spec} />}
+        {phase.kind === "previewing" && (
+          <div className="bg-muted/20 space-y-2 rounded-md border p-3">
+            <label className="flex items-center gap-2 text-xs font-medium">
+              <Bookmark className="h-3 w-3" />
+              このセッションをテンプレに保存
+            </label>
+            <div className="flex gap-2">
+              <input
+                value={savingName}
+                onChange={(e) => setSavingName(e.target.value)}
+                maxLength={80}
+                placeholder="例: TLS 深掘り"
+                className="border-input bg-background min-h-10 flex-1 rounded-md border px-2 text-sm"
+                aria-label="テンプレ名"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onSaveTemplate}
+                disabled={saveTemplate.isPending || savingName.trim().length === 0}
+              >
+                {saveTemplate.isPending ? (
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                ) : (
+                  <BookmarkCheck className="mr-1 h-3 w-3" />
+                )}
+                保存
+              </Button>
+            </div>
+          </div>
+        )}
+        {phase.kind === "input" && (templatesQuery.data?.items.length ?? 0) > 0 && (
+          <div className="bg-muted/20 space-y-2 rounded-md border p-3">
+            <div className="text-xs font-medium">💾 保存済みテンプレート</div>
+            <ul className="space-y-1">
+              {(templatesQuery.data?.items ?? []).map((t) => (
+                <li key={t.id} className="flex items-center gap-2 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => onUseTemplate(t.id)}
+                    disabled={useTemplateMut.isPending}
+                    className="hover:bg-accent flex-1 rounded-md border px-2 py-1 text-left disabled:opacity-50"
+                  >
+                    <div className="font-medium">{t.name}</div>
+                    {t.rawRequest && (
+                      <div className="text-muted-foreground truncate text-xs">{t.rawRequest}</div>
+                    )}
+                    <div className="text-muted-foreground text-xs">
+                      {t.useCount} 回使用
+                      {t.lastUsedAt
+                        ? ` ・ 最終: ${new Date(t.lastUsedAt).toLocaleDateString("ja-JP")}`
+                        : null}
+                    </div>
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onDeleteTemplate(t.id)}
+                    disabled={deleteTemplateMut.isPending}
+                    aria-label={`${t.name} を削除`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {error && (
           <div className="text-destructive flex items-start gap-1 text-xs">
             <AlertTriangle className="mt-0.5 h-3 w-3" />

@@ -23,6 +23,31 @@ vi.mock("@/server/parser/custom-session", async () => {
   };
 });
 
+describe("custom.saveTemplate input validation (issue #32)", () => {
+  const fakeUser = { id: "u-1" } as User;
+  const caller = appRouter.createCaller({ user: fakeUser });
+  beforeEach(() => vi.clearAllMocks());
+
+  it("空のテンプレ名は reject (whitespace-only を含む)", async () => {
+    await expect(
+      caller.custom.saveTemplate({ name: "   ", spec: { questionCount: 5 } }),
+    ).rejects.toThrow();
+  });
+
+  it("81 文字超のテンプレ名は reject", async () => {
+    await expect(
+      caller.custom.saveTemplate({ name: "a".repeat(81), spec: { questionCount: 5 } }),
+    ).rejects.toThrow();
+  });
+
+  it("未認証は UNAUTHORIZED", async () => {
+    const anon = appRouter.createCaller({ user: null });
+    await expect(
+      anon.custom.saveTemplate({ name: "test", spec: { questionCount: 5 } }),
+    ).rejects.toThrow();
+  });
+});
+
 describe("custom.parse input validation (router 境界テスト)", () => {
   const fakeUser = { id: "u-1" } as User;
   const caller = appRouter.createCaller({ user: fakeUser });
