@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, Check, Loader2, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -119,6 +119,74 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
     }
   }, [phase, question, selectedIndex, handleStart, handleNext, handleSubmit]);
 
+  // セッション中の戻るジェスチャ / タブ閉じで意図せず終了しないよう警告
+  // (issue #25 受け入れ基準: 戻るジェスチャで意図しない終了を防ぐ)。
+  //
+  // - beforeunload: タブ閉じ / リロード / 外部ドメイン遷移 (browser ネイティブの確認)
+  // - popstate + sentinel pushState: SPA 内の戻る (iOS edge swipe / Android back / browser back)。
+  //   beforeunload は SPA の popstate では発火しないため、別経路で intercept する必要がある。
+  //
+  // phase が asking | graded のときのみ guard を有効化。最新 phase は ref 経由で参照し、
+  // listener を毎回 re-bind しない (sentinel が phase 切替で重複 push されないように)。
+  const phaseRef = useRef(phase);
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+
+    let trapPushed = false;
+
+    function pushTrap() {
+      if (trapPushed) return;
+      window.history.pushState({ tanren: "drill-guard" }, "");
+      trapPushed = true;
+    }
+
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      const p = phaseRef.current;
+      if (p !== "asking" && p !== "graded") return;
+      e.preventDefault();
+      e.returnValue = "";
+    }
+
+    function onPopState() {
+      // popstate 発火 = trap entry が consume された
+      trapPushed = false;
+      const p = phaseRef.current;
+      if (p !== "asking" && p !== "graded") return;
+      const leave = window.confirm("セッションを離れますか? 回答中の進捗は失われます。");
+      if (leave) {
+        // 自分自身を外してから history.back() を呼ぶ。続けて発火する popstate は
+        // listener なしで silent に処理され、confirm の再入や多重 back を起こさない
+        // (Codex Round 2 指摘 #1)。
+        window.removeEventListener("popstate", onPopState);
+        window.removeEventListener("beforeunload", onBeforeUnload);
+        window.history.back();
+      } else {
+        // キャンセル: trap を再度積んで /drill に留まる
+        pushTrap();
+      }
+    }
+
+    pushTrap();
+    window.addEventListener("popstate", onPopState);
+    window.addEventListener("beforeunload", onBeforeUnload);
+
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      // session が終了したら sentinel を回収して、次の戻る操作が「無音の back」に
+      // ならないようにする (Codex Round 2 指摘 #2)。
+      // listener は既に外しているので history.back() の popstate は silent に処理される。
+      if (trapPushed) {
+        trapPushed = false;
+        window.history.back();
+      }
+    };
+  }, [sessionId]);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       // キーリピート / 既に通信中の発火を全て無視 (submit/next の二重発火抑止)
@@ -162,7 +230,7 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
           <CardDescription>5 問の mcq に解答します。</CardDescription>
         </CardHeader>
         <CardFooter>
-          <Button onClick={handleStart} disabled={pending}>
+          <Button onClick={handleStart} disabled={pending} className="min-h-12 px-6">
             {pending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
             スタート
           </Button>
@@ -187,6 +255,7 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
               reset();
               handleReset();
             }}
+            className="min-h-12 px-6"
           >
             ホームに戻る
           </Button>
@@ -241,7 +310,7 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
               disabled={phase === "graded"}
               onClick={() => setSelected(i)}
               className={[
-                "flex w-full items-start gap-3 rounded-md border p-3 text-left text-sm transition-colors",
+                "flex min-h-12 w-full items-start gap-3 rounded-md border p-3 text-left text-sm transition-colors",
                 isGradedCorrect
                   ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
                   : isWrongSelected
@@ -299,12 +368,16 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
       </CardContent>
       <CardFooter className="flex justify-end gap-2">
         {phase === "asking" ? (
-          <Button onClick={handleSubmit} disabled={selectedIndex === null || pending}>
+          <Button
+            onClick={handleSubmit}
+            disabled={selectedIndex === null || pending}
+            className="min-h-12 px-6"
+          >
             {pending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
             回答する (Enter)
           </Button>
         ) : (
-          <Button onClick={handleNext} disabled={pending}>
+          <Button onClick={handleNext} disabled={pending} className="min-h-12 px-6">
             次へ (Enter)
           </Button>
         )}

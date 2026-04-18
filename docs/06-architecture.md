@@ -540,7 +540,9 @@ Tanren/
 │   │   ├── insights/              # Dashboard / History / Search
 │   │   ├── review/                # Mistake Review 入口
 │   │   └── pwa/                   # Service Worker 登録 (issue #24)
-│   ├── components/ui/             # shadcn/ui
+│   ├── components/
+│   │   ├── ui/                    # shadcn/ui
+│   │   └── layout/                # BottomNav / AppShell (issue #25)
 │   └── lib/                       # 共通ユーティリティ
 │       ├── openai/                # OpenAI client / model 定数 (CLAUDE.md §4.6)
 │       ├── share/                 # copy-for-llm 整形

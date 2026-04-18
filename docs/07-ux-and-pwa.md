@@ -370,8 +370,15 @@ Phase 5+ で実運用テスト (iOS で確実に届くか) をした上で導入
 
 ### 7.6.1. モバイル (〜 640px)
 
-- ボタン / 入力は画面下部
-- ナビは bottom tab bar
+- ボタン / 入力は画面下部 (CardFooter / 主要 CTA は最低 48px の高さ)
+- ナビは bottom tab bar (Home / Drill / Insights、`src/components/layout/bottom-nav.tsx`)
+- 没入画面 (`/drill`, `/custom`, `/review`, `/login`) では BottomNav を非表示にして
+  セッション中に意図せず別画面に飛ばないようにする (`AppShell` の `isNavHidden`)
+- セッション中は二段構えで戻る操作を guard:
+  - `beforeunload` — タブ閉じ / リロード / 外部ドメイン遷移 (ブラウザネイティブ確認)
+  - `popstate` + sentinel `pushState` — SPA 内の戻るジェスチャ (iOS edge swipe / Android back)。
+    `beforeunload` は SPA の popstate では発火しないため別経路で intercept する。
+  - 共に `phase === asking|graded` のときのみ有効。`finished | idle` ではブロックしない
 - 問題1つで画面埋まる
 
 ### 7.6.2. デスクトップ (1024px+)
