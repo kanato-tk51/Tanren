@@ -1,0 +1,92 @@
+# MVP 初期 10 concept (docs/10-taxonomy-seed.md から抜粋)
+# Tier 1 の 6 ドメインから満遍なく拾い、依存関係 (prereqs) が完結する最小集合にしている。
+# 追加は順次 docs/10-taxonomy-seed.md を更新してからこのファイルに写す。
+
+concepts:
+  # programming (3)
+  - id: programming.basics.value_vs_reference
+    name: 値渡しと参照渡し
+    domain: programming
+    subdomain: basics
+    description: 変数・引数が参照共有されるか、コピーされるかの違い
+    difficulty_levels: [beginner, junior]
+    tags: [memory, semantics]
+
+  - id: programming.async.event_loop
+    name: イベントループ
+    domain: programming
+    subdomain: async
+    description: JavaScript/Node.js のタスクキューとマイクロタスクの実行順
+    difficulty_levels: [junior, mid]
+    tags: [concurrency, javascript]
+
+  - id: programming.async.promise_async_await
+    name: Promise / async-await の挙動
+    domain: programming
+    subdomain: async
+    description: 非同期合成の落とし穴 (未 await・エラー伝播・並列化)
+    prereqs: [programming.async.event_loop]
+    difficulty_levels: [junior, mid]
+    tags: [concurrency, javascript]
+
+  # dsa (2)
+  - id: dsa.complexity.big_o
+    name: Big O 記法
+    domain: dsa
+    subdomain: complexity
+    description: 入力サイズに対する計算量の漸近的記述
+    difficulty_levels: [beginner, junior]
+    tags: [analysis]
+
+  - id: dsa.structures.hash_table
+    name: ハッシュテーブル
+    domain: dsa
+    subdomain: structures
+    description: 平均 O(1) のキー探索、衝突解決と負荷率
+    prereqs: [dsa.complexity.big_o]
+    difficulty_levels: [beginner, junior, mid]
+    tags: [hash, collisions]
+
+  # network (2)
+  - id: network.http.methods
+    name: HTTP メソッドと冪等性
+    domain: network
+    subdomain: http
+    description: GET/POST/PUT/DELETE/PATCH の意味と安全性・冪等性
+    difficulty_levels: [beginner, junior]
+    tags: [rest, idempotency]
+
+  - id: network.http.status_codes
+    name: HTTP ステータスコード
+    domain: network
+    subdomain: http
+    description: 2xx/3xx/4xx/5xx の分類と代表的な落とし穴 (301 vs 308 など)
+    difficulty_levels: [beginner, junior]
+    tags: [rest]
+
+  # db (1)
+  - id: db.rdb.indexes
+    name: インデックス (B-tree)
+    domain: db
+    subdomain: rdb
+    description: B-tree インデックスの仕組みと、どのクエリを高速化できるか
+    difficulty_levels: [junior, mid]
+    tags: [performance]
+
+  # tools (1)
+  - id: tools.git.rebase_vs_merge
+    name: rebase と merge の使い分け
+    domain: tools
+    subdomain: git
+    description: 履歴線形化と統合コミットのトレードオフ、共有ブランチで rebase しない理由
+    difficulty_levels: [junior, mid]
+    tags: [git]
+
+  # frontend (1)
+  - id: frontend.react.hooks_rules
+    name: React Hooks のルール
+    domain: frontend
+    subdomain: react
+    description: Hooks の呼び出し順序と条件分岐で呼んではいけない理由
+    difficulty_levels: [junior, mid]
+    tags: [react, hooks]

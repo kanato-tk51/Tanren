@@ -1,22 +1,25 @@
 /**
- * 13 ドメインのマスタは YAML (`src/db/seed/concepts.yaml`) が正。
+ * 13 ドメインのマスタは docs/02-learning-system.md §2.1.1 が真実の源。
  * ここでは TypeScript 側で型を締めるための列挙だけを定義する。
- * docs/06-architecture.md §6.2.2 に準拠。
+ *
+ * MVP は Tier 1 の 6 ドメイン (programming / dsa / network / db / tools / frontend) から
+ * 開始し、Tier 2 (os / security / design / devops / ai_ml)、Tier 3 (distributed / low_level)
+ * へ順次拡張する。
  */
 export const DOMAIN_IDS = [
   "programming",
-  "typesystem",
-  "algorithm",
-  "data_structure",
-  "database",
+  "dsa",
+  "os",
   "network",
-  "os_runtime",
-  "distributed",
+  "db",
   "security",
-  "web",
-  "architecture",
-  "testing",
+  "distributed",
+  "design",
   "devops",
+  "tools",
+  "low_level",
+  "ai_ml",
+  "frontend",
 ] as const;
 export type DomainId = (typeof DOMAIN_IDS)[number];
 
