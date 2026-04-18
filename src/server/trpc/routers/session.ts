@@ -14,6 +14,7 @@ import {
 } from "@/db/schema";
 import { generateMcq } from "@/server/generator/mcq";
 import { gradeAttempt } from "@/server/grader";
+import { selectDailyCandidates } from "@/server/scheduler/daily";
 import { STREAK_FOR_PROMOTION, computePromotion } from "@/server/scheduler/promotion";
 
 import { protectedProcedure, router } from "../init";
@@ -44,7 +45,11 @@ async function loadSession(sessionId: string, userId: string) {
   return row;
 }
 
-async function pickConceptForDrill() {
+async function pickConceptForDrill(userId: string) {
+  // Daily Drill の優先度アルゴリズム (docs/06 §6.4) に委譲。
+  // due / blind_spot 候補が両方空なら、seed の concepts から fallback として 1 件返す。
+  const candidates = await selectDailyCandidates({ userId, count: 1 });
+  if (candidates[0]) return candidates[0].concept;
   const rows = await getDb().select().from(concepts).limit(1);
   const row = rows[0];
   if (!row) {
@@ -145,7 +150,7 @@ export const sessionRouter = router({
       try {
         const conceptRow = input.conceptId
           ? await loadConcept(input.conceptId)
-          : await pickConceptForDrill();
+          : await pickConceptForDrill(ctx.user.id);
 
         // 直近 STREAK_FOR_PROMOTION 件の同 concept の attempts を見て、3 連続正解なら次出題を 1 段昇格
         const recent = await getDb()
