@@ -10,6 +10,7 @@ import {
   type Question,
   type RubricCheckResult,
 } from "@/db/schema";
+import { updateMasteryAfterAttempt } from "@/server/scheduler/update-mastery";
 
 import { gradeMcq } from "./mcq";
 import { gradeShort } from "./short";
@@ -128,6 +129,12 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
 
   if (inserted[0]) {
     grade.attempt.id = inserted[0].id;
+    // 採点成功したときだけ mastery を更新 (二重 submit の losing race は更新しない)
+    await updateMasteryAfterAttempt({
+      userId: input.userId,
+      conceptId: question.conceptId,
+      score: grade.score,
+    });
     return grade;
   }
 
