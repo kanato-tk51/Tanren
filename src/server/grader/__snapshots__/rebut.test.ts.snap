@@ -1,0 +1,39 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildRebutPrompt > 反論と元の採点を含む snapshot 1`] = `
+{
+  "system": "You are a senior engineer re-evaluating a previously graded short/written answer after the user objected. The user argues their answer is correct. Steelman the user's position: if there is a reasonable interpretation under which the answer is correct, give partial or full credit. However, do NOT sycophantically grant credit for logically unsound objections. Output strictly as JSON matching the provided schema. Use 日本語 for human-readable fields.",
+  "user": "## Output requirements (固定)
+
+- \`score\` (number, 0.0-1.0): 再評価後のスコア。反論が妥当なら元より高く、妥当でないなら元と同じ
+- \`correct\` (boolean): score >= 0.7 のとき true、そうでなければ false
+- \`feedback\` (string): 反論を踏まえて、なぜその score か 1-2 文で日本語。反論を棄却したならその理由も
+- \`rubricChecks\` (array): ルーブリック各項目 (\`id\` / \`passed\` / \`comment\`)
+
+## Question (可変)
+
+HTTP PUT と PATCH の違いを 1 文で。
+
+## Expected answer (可変)
+
+PUT は冪等、PATCH は部分更新。
+
+## Rubric (可変)
+
+- id=r1: PUT の冪等性に言及
+- id=r2: PATCH の部分更新に言及
+
+## User answer (可変)
+
+PUT は同じリクエストを何度投げても状態が変わらない。PATCH は差分更新。
+
+## Original grading (可変)
+
+判定: 不正解 / score=0.5
+feedback: 冪等性の明示が弱い
+
+## User's rebuttal (可変)
+
+「状態が変わらない」は冪等性の言い換えです。これは正解のはず。",
+}
+`;

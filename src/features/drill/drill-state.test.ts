@@ -55,6 +55,7 @@ describe("useDrillStore", () => {
       score: 1,
       feedback: "正解です",
       correctIndex: 1,
+      questionType: "mcq",
     });
     const s = useDrillStore.getState();
     expect(s.phase).toBe("graded");
