@@ -16,7 +16,10 @@ export function normalizeRubricChecks(
 export type DrillQuestion = {
   id: string;
   prompt: string;
-  /** サーバー側でシャッフル済み (answer + distractors が混在、正答位置は UI には渡さない) */
+  /** UI ディスパッチ用。mcq は option ボタン、cloze/code_read/short/written は textarea 入力 (issue #31) */
+  type: string;
+  /** サーバー側でシャッフル済み (answer + distractors が混在、正答位置は UI には渡さない)。
+   *  cloze / code_read 等 mcq 以外では空配列 */
   options: string[];
   hint: string | null;
   tags: string[];
@@ -55,7 +58,10 @@ export type DrillState = {
   phase: Phase;
   sessionId: string | null;
   question: DrillQuestion | null;
+  /** mcq での選択肢インデックス (cloze/code_read 等では使用しない) */
   selectedIndex: number | null;
+  /** cloze / code_read / short / written での自由入力テキスト (issue #31) */
+  textAnswer: string;
   grading: DrillGrading | null;
   summary: DrillSummary | null;
 };
@@ -65,6 +71,7 @@ type Actions = {
   setSession: (sessionId: string) => void;
   setQuestion: (q: DrillQuestion | null) => void;
   setSelected: (idx: number) => void;
+  setTextAnswer: (text: string) => void;
   setGrading: (g: DrillGrading) => void;
   updateGrading: (patch: Partial<DrillGrading>) => void;
   setSummary: (s: DrillSummary) => void;
@@ -75,6 +82,7 @@ export const useDrillStore = create<DrillState & Actions>((set) => ({
   sessionId: null,
   question: null,
   selectedIndex: null,
+  textAnswer: "",
   grading: null,
   summary: null,
 
@@ -84,6 +92,7 @@ export const useDrillStore = create<DrillState & Actions>((set) => ({
       sessionId: null,
       question: null,
       selectedIndex: null,
+      textAnswer: "",
       grading: null,
       summary: null,
     }),
@@ -92,11 +101,25 @@ export const useDrillStore = create<DrillState & Actions>((set) => ({
 
   setQuestion: (q) =>
     set(() => {
-      if (!q) return { question: null, selectedIndex: null, phase: "asking" as const };
-      return { question: q, selectedIndex: null, grading: null, phase: "asking" as const };
+      if (!q)
+        return {
+          question: null,
+          selectedIndex: null,
+          textAnswer: "",
+          phase: "asking" as const,
+        };
+      return {
+        question: q,
+        selectedIndex: null,
+        textAnswer: "",
+        grading: null,
+        phase: "asking" as const,
+      };
     }),
 
   setSelected: (idx) => set({ selectedIndex: idx }),
+
+  setTextAnswer: (text) => set({ textAnswer: text }),
 
   setGrading: (g) => set({ grading: g, phase: "graded" }),
 

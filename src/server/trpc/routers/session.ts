@@ -523,16 +523,23 @@ export const sessionRouter = router({
         .set({ spec: { ...spec, pendingQuestionId: question.id } })
         .where(eq(sessions.id, session.id));
 
-      // answer はクライアントに返さず options だけ返す (正答漏洩防止)
-      const options = shuffleWithSeed(
-        [question.answer, ...((question.distractors ?? []) as string[])],
-        question.id,
-      );
+      // answer はクライアントに返さず options だけ返す (正答漏洩防止)。
+      // mcq は answer + distractors を shuffle、それ以外 (cloze / code_read / short / written) は
+      // 選択肢を持たないため空配列で返す (UI 側で type を見て textarea / code display に分岐)。
+      const qType = (question as { type?: string }).type ?? "mcq";
+      const options =
+        qType === "mcq"
+          ? shuffleWithSeed(
+              [question.answer, ...((question.distractors ?? []) as string[])],
+              question.id,
+            )
+          : [];
       return {
         done: false as const,
         question: {
           id: question.id,
           prompt: question.prompt,
+          type: qType,
           options,
           hint: question.hint,
           tags: (question.tags ?? []) as string[],

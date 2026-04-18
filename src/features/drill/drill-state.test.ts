@@ -5,6 +5,7 @@ import { normalizeRubricChecks, useDrillStore, type DrillQuestion } from "./dril
 const sampleQuestion: DrillQuestion = {
   id: "q-1",
   prompt: "HTTP の PUT と PATCH の違いは?",
+  type: "mcq",
   options: [
     "PUT は body 不要",
     "PUT は冪等、PATCH は部分更新",

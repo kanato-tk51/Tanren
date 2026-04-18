@@ -29,8 +29,13 @@ type DrillScreenProps = {
 };
 
 export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps = {}) {
-  const { phase, sessionId, question, selectedIndex, grading, summary } = useDrillStore();
-  const { reset, setSession, setQuestion, setSelected, setGrading, setSummary } = useDrillStore();
+  const { phase, sessionId, question, selectedIndex, textAnswer, grading, summary } =
+    useDrillStore();
+  const { reset, setSession, setQuestion, setSelected, setTextAnswer, setGrading, setSummary } =
+    useDrillStore();
+
+  // mcq 以外 (cloze / code_read / short / written) は textarea で自由入力
+  const isTextInput = question?.type !== "mcq";
   // 既定 (onReset 未指定) は zustand reset。引数 finalSummary は無視されるが
   // 関数シグネチャは optional 引数で互換 (custom / review もそのまま動く)。
   const handleReset = onReset ?? (() => reset());
@@ -84,8 +89,9 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
   }, [sessionId, nextMutation, finishMutation, setQuestion, setSummary]);
 
   const handleSubmit = useCallback(async () => {
-    if (!sessionId || !question || selectedIndex === null) return;
-    const answer = question.options[selectedIndex];
+    if (!sessionId || !question) return;
+    // mcq は selectedIndex から option を取り出す、それ以外は textAnswer を使う (issue #31)
+    const answer = isTextInput ? textAnswer.trim() : question.options[selectedIndex ?? -1];
     if (!answer) return;
     setErrorMessage(null);
     try {
@@ -99,7 +105,8 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
         correct: result.correct,
         score: result.score,
         feedback: result.feedback,
-        correctIndex: result.correct ? selectedIndex : null,
+        // correctIndex は mcq でユーザーが選んだインデックスが正解だったか UI ハイライトに使う
+        correctIndex: !isTextInput && result.correct ? selectedIndex : null,
         questionType: result.questionType ?? null,
         correctAnswer: result.correctAnswer ?? null,
         userAnswer: answer,
@@ -108,7 +115,7 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
     } catch (e) {
       setErrorMessage(toMessage(e));
     }
-  }, [sessionId, question, selectedIndex, submitMutation, setGrading]);
+  }, [sessionId, question, selectedIndex, textAnswer, isTextInput, submitMutation, setGrading]);
 
   const handleRetry = useCallback(() => {
     setErrorMessage(null);
@@ -116,12 +123,16 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
       void handleStart();
     } else if (phase === "asking" && !question) {
       void handleNext();
-    } else if (phase === "asking" && question && selectedIndex !== null) {
+    } else if (
+      phase === "asking" &&
+      question &&
+      (selectedIndex !== null || textAnswer.trim().length > 0)
+    ) {
       void handleSubmit();
     } else if (phase === "graded") {
       void handleNext();
     }
-  }, [phase, question, selectedIndex, handleStart, handleNext, handleSubmit]);
+  }, [phase, question, selectedIndex, textAnswer, handleStart, handleNext, handleSubmit]);
 
   // セッション中の戻るジェスチャ / タブ閉じで意図せず終了しないよう警告
   // (issue #25 受け入れ基準: 戻るジェスチャで意図しない終了を防ぐ)。
@@ -196,13 +207,28 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
       // キーリピート / 既に通信中の発火を全て無視 (submit/next の二重発火抑止)
       if (e.repeat || pending) return;
       if (phase === "asking" && question) {
-        const n = Number.parseInt(e.key, 10);
-        if (n >= 1 && n <= options.length) {
-          setSelected(n - 1);
-          e.preventDefault();
-        } else if (e.key === "Enter" && selectedIndex !== null) {
-          void handleSubmit();
-          e.preventDefault();
+        // mcq: 数字キー 1-N で選択肢、Enter で送信。textarea の中での数字キーやスペースは
+        // document レベルで拾わないため、isTextInput のときは textarea に任せる。
+        if (!isTextInput) {
+          const n = Number.parseInt(e.key, 10);
+          if (n >= 1 && n <= options.length) {
+            setSelected(n - 1);
+            e.preventDefault();
+            return;
+          }
+        }
+        // Cmd/Ctrl+Enter で送信 (textarea 内では naked Enter は改行)
+        const submitKey = isTextInput
+          ? e.key === "Enter" && (e.metaKey || e.ctrlKey)
+          : e.key === "Enter";
+        if (submitKey) {
+          const canSubmit =
+            (!isTextInput && selectedIndex !== null) ||
+            (isTextInput && textAnswer.trim().length > 0);
+          if (canSubmit) {
+            void handleSubmit();
+            e.preventDefault();
+          }
         }
       } else if (phase === "graded" && e.key === "Enter") {
         void handleNext();
@@ -216,6 +242,8 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
     question,
     options.length,
     selectedIndex,
+    textAnswer,
+    isTextInput,
     pending,
     handleSubmit,
     handleNext,
@@ -297,45 +325,78 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
     );
   }
 
+  const isCodeRead = question.type === "code_read";
   return (
     <Card className="w-full max-w-xl">
       <CardHeader>
-        <CardDescription>{question.tags.join(" / ")}</CardDescription>
-        <CardTitle className="text-base font-medium whitespace-pre-wrap">
-          {question.prompt}
-        </CardTitle>
+        <CardDescription>
+          {question.tags.join(" / ")}
+          {question.type !== "mcq" ? ` ・ ${question.type}` : null}
+        </CardDescription>
+        {isCodeRead ? (
+          // code_read: prompt は「次のコードの出力を答えよ」+ コード。
+          // コード部分を <pre> でモノスペース表示 (CodeMirror は重い+display-only なので MVP では不要)。
+          <CardTitle className="text-base font-medium">
+            <pre className="bg-muted/50 overflow-x-auto rounded-md p-3 font-mono text-xs whitespace-pre">
+              {question.prompt}
+            </pre>
+            <p className="mt-2 text-sm font-normal">このコードの出力を予測して入力してください。</p>
+          </CardTitle>
+        ) : (
+          <CardTitle className="text-base font-medium whitespace-pre-wrap">
+            {question.prompt}
+          </CardTitle>
+        )}
       </CardHeader>
       <CardContent className="space-y-2">
-        {options.map((opt, i) => {
-          const isSelected = i === selectedIndex;
-          const isGradedCorrect = phase === "graded" && grading?.correctIndex === i;
-          const isWrongSelected = phase === "graded" && isSelected && grading?.correct === false;
-          return (
-            <button
-              key={`${question.id}-${i}`}
-              type="button"
-              disabled={phase === "graded"}
-              onClick={() => setSelected(i)}
-              className={[
-                "flex min-h-12 w-full items-start gap-3 rounded-md border p-3 text-left text-sm transition-colors",
-                isGradedCorrect
-                  ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
-                  : isWrongSelected
-                    ? "border-destructive bg-red-50 dark:bg-red-950"
-                    : isSelected
-                      ? "border-primary"
-                      : "border-border hover:border-muted-foreground",
-              ].join(" ")}
-            >
-              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-xs">
-                {i + 1}
-              </span>
-              <span className="flex-1 whitespace-pre-wrap">{opt}</span>
-              {isGradedCorrect && <Check className="h-4 w-4 text-emerald-600" />}
-              {isWrongSelected && <X className="text-destructive h-4 w-4" />}
-            </button>
-          );
-        })}
+        {isTextInput && (
+          <textarea
+            value={textAnswer}
+            onChange={(e) => setTextAnswer(e.target.value)}
+            disabled={phase === "graded"}
+            rows={isCodeRead ? 6 : 3}
+            placeholder={
+              question.type === "cloze"
+                ? "穴埋めする内容を入力"
+                : isCodeRead
+                  ? "期待される出力"
+                  : "回答を入力"
+            }
+            className="border-input bg-background min-h-20 w-full rounded-md border p-2 font-mono text-sm"
+            aria-label="回答入力"
+          />
+        )}
+        {!isTextInput &&
+          options.map((opt, i) => {
+            const isSelected = i === selectedIndex;
+            const isGradedCorrect = phase === "graded" && grading?.correctIndex === i;
+            const isWrongSelected = phase === "graded" && isSelected && grading?.correct === false;
+            return (
+              <button
+                key={`${question.id}-${i}`}
+                type="button"
+                disabled={phase === "graded"}
+                onClick={() => setSelected(i)}
+                className={[
+                  "flex min-h-12 w-full items-start gap-3 rounded-md border p-3 text-left text-sm transition-colors",
+                  isGradedCorrect
+                    ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
+                    : isWrongSelected
+                      ? "border-destructive bg-red-50 dark:bg-red-950"
+                      : isSelected
+                        ? "border-primary"
+                        : "border-border hover:border-muted-foreground",
+                ].join(" ")}
+              >
+                <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-xs">
+                  {i + 1}
+                </span>
+                <span className="flex-1 whitespace-pre-wrap">{opt}</span>
+                {isGradedCorrect && <Check className="h-4 w-4 text-emerald-600" />}
+                {isWrongSelected && <X className="text-destructive h-4 w-4" />}
+              </button>
+            );
+          })}
         {phase === "graded" && grading && question && (
           <div className="space-y-2">
             <div className="bg-muted/50 rounded-md p-3 text-sm">{grading.feedback}</div>
@@ -377,11 +438,13 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
         {phase === "asking" ? (
           <Button
             onClick={handleSubmit}
-            disabled={selectedIndex === null || pending}
+            disabled={
+              pending || (isTextInput ? textAnswer.trim().length === 0 : selectedIndex === null)
+            }
             className="min-h-12 px-6"
           >
             {pending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-            回答する (Enter)
+            {isTextInput ? "回答する (Cmd+Enter)" : "回答する (Enter)"}
           </Button>
         ) : (
           <Button onClick={handleNext} disabled={pending} className="min-h-12 px-6">
