@@ -3,6 +3,7 @@ import { z } from "zod";
 import { DOMAIN_IDS } from "@/db/schema/_constants";
 import { fetchHistory } from "@/server/insights/history";
 import { fetchInsightsOverview } from "@/server/insights/overview";
+import { fetchSearch } from "@/server/insights/search";
 
 import { protectedProcedure, router } from "../init";
 
@@ -28,4 +29,22 @@ export const insightsRouter = router({
       }),
     )
     .query(({ ctx, input }) => fetchHistory({ userId: ctx.user.id, filter: input })),
+
+  /**
+   * 簡易全文検索 (issue #22, docs/05 §5.6)。
+   * ILIKE '%q%' ベース。tsvector 本格チューニングは Phase 5+ (issue #30)。
+   */
+  search: protectedProcedure
+    .input(
+      z.object({
+        q: z
+          .string()
+          .transform((s) => s.trim())
+          .pipe(z.string().min(1, "検索語を入力してください").max(200)),
+        limit: z.number().int().min(1).max(200).optional(),
+      }),
+    )
+    .query(({ ctx, input }) =>
+      fetchSearch({ userId: ctx.user.id, q: input.q, limit: input.limit }),
+    ),
 });
