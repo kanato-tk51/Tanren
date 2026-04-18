@@ -5,6 +5,19 @@
 
 const MAX_USER_ANSWER_LEN = 2000;
 
+/**
+ * copy-for-llm テンプレ (docs §7.13.4) に使う concept / 出題メタ。
+ * UI と server の間で共有される型定義の真実の源 (重複定義禁止)。
+ */
+export type CopyForLlmQuestionMeta = {
+  domain?: string | null;
+  subdomain?: string | null;
+  conceptName?: string | null;
+  conceptId?: string | null;
+  thinkingStyle?: string | null;
+  difficulty?: string | null;
+};
+
 export type CopyForLlmInput = {
   question: {
     prompt: string;
@@ -15,14 +28,7 @@ export type CopyForLlmInput = {
     /** 任意: ヒント */
     hint?: string | null;
     /** docs §7.13.4 に従う任意メタ。取得可能なものだけ埋める */
-    meta?: {
-      domain?: string | null;
-      subdomain?: string | null;
-      conceptName?: string | null;
-      conceptId?: string | null;
-      thinkingStyle?: string | null;
-      difficulty?: string | null;
-    } | null;
+    meta?: CopyForLlmQuestionMeta | null;
   };
   userAnswer: string;
   grading: {

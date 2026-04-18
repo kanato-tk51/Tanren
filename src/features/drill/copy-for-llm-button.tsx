@@ -59,7 +59,10 @@ export function CopyForLlmButton(props: {
   }
 
   const onClick = async () => {
+    // 前回クリックの成功状態 / トーストが残らないよう、毎回冒頭でリセットする
     setErrorMessage(null);
+    setState("idle");
+    setToast(null);
     if (!props.correctAnswer) {
       setState("error");
       setErrorMessage("期待回答の取得に失敗しました。");

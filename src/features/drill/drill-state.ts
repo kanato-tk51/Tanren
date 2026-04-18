@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+import type { CopyForLlmQuestionMeta } from "@/lib/share/copy-for-llm";
+
 export type DrillQuestion = {
   id: string;
   prompt: string;
@@ -8,14 +10,7 @@ export type DrillQuestion = {
   hint: string | null;
   tags: string[];
   /** copy-for-llm テンプレで使う concept / domain / 難易度 メタ (docs §7.13.4) */
-  meta: {
-    domain: string;
-    subdomain: string;
-    conceptId: string;
-    conceptName: string;
-    thinkingStyle: string | null;
-    difficulty: string;
-  } | null;
+  meta: CopyForLlmQuestionMeta | null;
 };
 
 export type DrillGrading = {

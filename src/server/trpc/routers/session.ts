@@ -12,6 +12,7 @@ import {
   THINKING_STYLES,
   type DifficultyLevel,
 } from "@/db/schema";
+import type { CopyForLlmQuestionMeta } from "@/lib/share/copy-for-llm";
 import { generateMcq } from "@/server/generator/mcq";
 import { gradeAttempt } from "@/server/grader";
 import { selectDailyCandidates } from "@/server/scheduler/daily";
@@ -148,14 +149,7 @@ export const sessionRouter = router({
 
       // 予約後に問題生成が失敗したら pendingQuestionId を null に戻してセッションを復帰させる。
       let question: Awaited<ReturnType<typeof generateMcq>>["question"];
-      let questionMeta: {
-        domain: string;
-        subdomain: string;
-        conceptId: string;
-        conceptName: string;
-        thinkingStyle: string | null;
-        difficulty: string;
-      } | null = null;
+      let questionMeta: CopyForLlmQuestionMeta | null = null;
       try {
         const conceptRow = input.conceptId
           ? await loadConcept(input.conceptId)
