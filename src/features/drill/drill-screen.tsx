@@ -1,7 +1,7 @@
 "use client";
 
-import { Check, Loader2, X } from "lucide-react";
-import { useCallback, useEffect } from "react";
+import { AlertTriangle, Check, Loader2, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -31,27 +31,40 @@ export function DrillScreen() {
     submitMutation.isPending ||
     finishMutation.isPending;
 
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const options = question?.options ?? [];
 
+  const toMessage = (e: unknown) => (e instanceof Error ? e.message : "通信エラー");
+
   const handleStart = useCallback(async () => {
-    const { sessionId } = await startMutation.mutateAsync({ kind: "daily", targetCount: 5 });
-    setSession(sessionId);
-    const result = await nextMutation.mutateAsync({ sessionId });
-    if (!result.done) setQuestion(result.question);
+    setErrorMessage(null);
+    try {
+      const { sessionId } = await startMutation.mutateAsync({ kind: "daily", targetCount: 5 });
+      setSession(sessionId);
+      const result = await nextMutation.mutateAsync({ sessionId });
+      if (!result.done) setQuestion(result.question);
+    } catch (e) {
+      setErrorMessage(toMessage(e));
+    }
   }, [startMutation, nextMutation, setSession, setQuestion]);
 
   const handleNext = useCallback(async () => {
     if (!sessionId) return;
-    const result = await nextMutation.mutateAsync({ sessionId });
-    if (result.done) {
-      const s = await finishMutation.mutateAsync({ sessionId });
-      setSummary({
-        questionCount: s.questionCount,
-        correctCount: s.correctCount,
-        accuracy: s.accuracy,
-      });
-    } else {
-      setQuestion(result.question);
+    setErrorMessage(null);
+    try {
+      const result = await nextMutation.mutateAsync({ sessionId });
+      if (result.done) {
+        const s = await finishMutation.mutateAsync({ sessionId });
+        setSummary({
+          questionCount: s.questionCount,
+          correctCount: s.correctCount,
+          accuracy: s.accuracy,
+        });
+      } else {
+        setQuestion(result.question);
+      }
+    } catch (e) {
+      setErrorMessage(toMessage(e));
     }
   }, [sessionId, nextMutation, finishMutation, setQuestion, setSummary]);
 
@@ -59,20 +72,37 @@ export function DrillScreen() {
     if (!sessionId || !question || selectedIndex === null) return;
     const answer = question.options[selectedIndex];
     if (!answer) return;
-    const result = await submitMutation.mutateAsync({
-      sessionId,
-      questionId: question.id,
-      userAnswer: answer,
-    });
-    setGrading({
-      attemptId: result.attemptId,
-      correct: result.correct,
-      score: result.score,
-      feedback: result.feedback,
-      // 正答インデックスは採点結果から UI 側で復元する (サーバーは answer を返さない)
-      correctIndex: result.correct ? selectedIndex : null,
-    });
+    setErrorMessage(null);
+    try {
+      const result = await submitMutation.mutateAsync({
+        sessionId,
+        questionId: question.id,
+        userAnswer: answer,
+      });
+      setGrading({
+        attemptId: result.attemptId,
+        correct: result.correct,
+        score: result.score,
+        feedback: result.feedback,
+        correctIndex: result.correct ? selectedIndex : null,
+      });
+    } catch (e) {
+      setErrorMessage(toMessage(e));
+    }
   }, [sessionId, question, selectedIndex, submitMutation, setGrading]);
+
+  const handleRetry = useCallback(() => {
+    setErrorMessage(null);
+    if (phase === "idle") {
+      void handleStart();
+    } else if (phase === "asking" && !question) {
+      void handleNext();
+    } else if (phase === "asking" && question && selectedIndex !== null) {
+      void handleSubmit();
+    } else if (phase === "graded") {
+      void handleNext();
+    }
+  }, [phase, question, selectedIndex, handleStart, handleNext, handleSubmit]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -142,9 +172,25 @@ export function DrillScreen() {
   if (!question) {
     return (
       <Card className="w-full max-w-xl">
-        <CardContent className="text-muted-foreground p-6 text-sm">
-          <Loader2 className="inline h-4 w-4 animate-spin" /> 問題を読み込み中…
+        <CardContent className="text-muted-foreground space-y-2 p-6 text-sm">
+          {errorMessage ? (
+            <div className="text-destructive flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4" />
+              <span className="break-all">{errorMessage}</span>
+            </div>
+          ) : (
+            <div>
+              <Loader2 className="inline h-4 w-4 animate-spin" /> 問題を読み込み中…
+            </div>
+          )}
         </CardContent>
+        {errorMessage && (
+          <CardFooter>
+            <Button variant="outline" onClick={handleRetry}>
+              再試行
+            </Button>
+          </CardFooter>
+        )}
       </Card>
     );
   }
@@ -190,6 +236,15 @@ export function DrillScreen() {
         })}
         {phase === "graded" && grading && (
           <div className="bg-muted/50 rounded-md p-3 text-sm">{grading.feedback}</div>
+        )}
+        {errorMessage && (
+          <div className="border-destructive/60 text-destructive flex items-start gap-2 rounded-md border bg-red-50 p-3 text-sm dark:bg-red-950">
+            <AlertTriangle className="mt-0.5 h-4 w-4" />
+            <div className="flex-1 break-all">{errorMessage}</div>
+            <Button size="sm" variant="outline" onClick={handleRetry}>
+              再試行
+            </Button>
+          </div>
         )}
       </CardContent>
       <CardFooter className="flex justify-end gap-2">
