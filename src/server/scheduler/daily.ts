@@ -3,6 +3,8 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { concepts, mastery, type Concept, type Mastery } from "@/db/schema";
 
+import { arePrereqsSatisfied } from "./blind-spot";
+
 /**
  * Daily Drill 候補選定 (docs/06-architecture.md §6.4.2 の重み付け):
  *   score = overdueDays + lapseCount*2 + blindSpotBonus - masteryPct*3
@@ -118,9 +120,7 @@ export function rankDailyCandidates(params: {
         });
       }
     } else {
-      const prereqs = concept.prereqs ?? [];
-      const prereqsSatisfied = prereqs.length === 0 || prereqs.every((id) => masteredIds.has(id));
-      if (prereqsSatisfied) {
+      if (arePrereqsSatisfied(concept, masteredIds)) {
         blindSpots.push({
           concept,
           mastery: null,

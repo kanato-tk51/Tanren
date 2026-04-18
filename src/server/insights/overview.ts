@@ -2,6 +2,7 @@ import { eq, sql } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import { attempts, concepts, mastery, type Concept, type Mastery } from "@/db/schema";
+import { arePrereqsSatisfied } from "@/server/scheduler/blind-spot";
 
 export type OverviewItem = {
   conceptId: string;
@@ -96,7 +97,8 @@ export async function fetchInsightsOverview(userId: string): Promise<InsightsOve
     .sort((a, b) => a.masteryPct - b.masteryPct || a.conceptId.localeCompare(b.conceptId))
     .slice(0, TOP_N);
 
-  // Blind spots: attempts=0 かつ prereqs 全て mastered (daily と同じ判定)。
+  // Blind spots: attempts=0 かつ prereqs 全て mastered
+  // (daily の rankDailyCandidates と同じ prereq 判定ロジックを共有 helper で使う)。
   // domain → subdomain → id の順で安定ソートして表示の再現性を確保。
   const conceptById = new Map(conceptRows.map((c) => [c.id, c]));
   const blindSpots = items
@@ -104,8 +106,7 @@ export async function fetchInsightsOverview(userId: string): Promise<InsightsOve
       if (i.attemptCount !== 0) return false;
       const concept = conceptById.get(i.conceptId);
       if (!concept) return false;
-      const prereqs = concept.prereqs ?? [];
-      return prereqs.length === 0 || prereqs.every((pid) => masteredIds.has(pid));
+      return arePrereqsSatisfied(concept, masteredIds);
     })
     .sort(
       (a, b) =>

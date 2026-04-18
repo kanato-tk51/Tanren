@@ -39,9 +39,9 @@ function ItemRow({
   hint: (it: OverviewItem) => string | null;
 }) {
   const message = hint(item);
-  // /custom?prefill=... で該当 concept に絞った Custom Session を開始できる
-  const prefill = `${item.conceptName} (${item.conceptId}) を 5 問出して`;
-  const customHref = `/custom?prefill=${encodeURIComponent(prefill)}`;
+  // /custom?conceptId=... に直接 conceptId を渡し、parser を迂回して customSpec.concepts を
+  // 決定論的に固定する (Round 3 指摘 #1: 自然言語 prefill では別 concept に解釈されうる)。
+  const customHref = `/custom?conceptId=${encodeURIComponent(item.conceptId)}`;
   return (
     <li className="border-border rounded-md border p-2 text-sm">
       <div className="flex items-baseline justify-between gap-2">
