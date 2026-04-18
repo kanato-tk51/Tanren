@@ -1,3 +1,5 @@
+import "server-only";
+
 import { eq, sql } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
@@ -34,6 +36,8 @@ export type MapSubdomainNode = {
   attemptCount: number;
   /** 配下 concept の masteryPct 平均 (attempt>0 のみ対象、全部 0 なら 0) */
   masteryPct: number;
+  /** 集計 tier: attemptCount=0 なら untouched、それ以外は masteryPct から決定 */
+  tier: MasteryTier;
   concepts: MapConceptNode[];
 };
 
@@ -41,6 +45,8 @@ export type MapDomainNode = {
   domainId: string;
   attemptCount: number;
   masteryPct: number;
+  /** 集計 tier */
+  tier: MasteryTier;
   subdomains: MapSubdomainNode[];
 };
 
@@ -113,20 +119,24 @@ export async function fetchMasteryMap(userId: string): Promise<MasteryMap> {
         .map(([subdomainId, cs]) => {
           const list = cs.slice().sort((a, b) => a.conceptId.localeCompare(b.conceptId));
           const attemptCount = list.reduce((a, x) => a + x.attemptCount, 0);
+          const masteryPct = weightedAverage(list);
           return {
             subdomainId,
             concepts: list,
             attemptCount,
-            masteryPct: weightedAverage(list),
+            masteryPct,
+            tier: toMasteryTier({ masteryPct, attemptCount }),
           };
         });
       const attemptCount = subdomains.reduce((a, x) => a + x.attemptCount, 0);
       const allConcepts = subdomains.flatMap((s) => s.concepts);
+      const masteryPct = weightedAverage(allConcepts);
       return {
         domainId,
         subdomains,
         attemptCount,
-        masteryPct: weightedAverage(allConcepts),
+        masteryPct,
+        tier: toMasteryTier({ masteryPct, attemptCount }),
       };
     });
 

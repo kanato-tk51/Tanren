@@ -7,10 +7,12 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
 import type { AppRouter } from "@/server/trpc/routers";
-import { toMasteryTier, type MasteryTier } from "@/server/insights/mastery-map";
 import { trpc } from "@/lib/trpc/react";
 
 type MasteryMap = inferRouterOutputs<AppRouter>["insights"]["masteryMap"];
+// tier 判定はサーバ側で済ませて router 出力に乗せる (docs §5.4、CLAUDE.md §4.7: サーバ専用
+// モジュールを client bundle に引き込まない。Codex Round 2 指摘)。
+type MasteryTier = MasteryMap["domains"][number]["tier"];
 
 /** SVG 座標系は上 = 負 Y。sunburst は 12 時方向から時計回りに描画する。 */
 const SIZE = 360;
@@ -123,7 +125,7 @@ function buildArcs(data: MasteryMap): Arc[] {
         innerR: RING_WIDTHS.domain.inner,
         outerR: RING_WIDTHS.domain.outer,
       }),
-      tier: toMasteryTier({ masteryPct: d.masteryPct, attemptCount: d.attemptCount }),
+      tier: d.tier,
       tooltip: `${d.domainId} (${Math.round(d.masteryPct * 100)}%, ${d.attemptCount} 問)`,
     });
 
@@ -142,7 +144,7 @@ function buildArcs(data: MasteryMap): Arc[] {
           innerR: RING_WIDTHS.subdomain.inner,
           outerR: RING_WIDTHS.subdomain.outer,
         }),
-        tier: toMasteryTier({ masteryPct: s.masteryPct, attemptCount: s.attemptCount }),
+        tier: s.tier,
         tooltip: `${d.domainId} / ${s.subdomainId} (${Math.round(s.masteryPct * 100)}%, ${s.attemptCount} 問)`,
       });
 
