@@ -118,16 +118,16 @@ export const sessionRouter = router({
           });
         }
       }
-      // MVP は mcq 生成のみ (questionTypes が指定されていて mcq を含まなければ reject)。
-      if (
-        input.customSpec?.questionTypes &&
-        input.customSpec.questionTypes.length > 0 &&
-        !input.customSpec.questionTypes.includes("mcq")
-      ) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Custom Session MVP は mcq のみ生成可能です",
-        });
+      // MVP は mcq 生成のみ。questionTypes が指定されていて mcq 以外を 1 つでも含む場合は reject。
+      // (UI 注記と一致させるため、mcq 混在でも厳密に弾く)
+      if (input.customSpec?.questionTypes && input.customSpec.questionTypes.length > 0) {
+        const onlyMcq = input.customSpec.questionTypes.every((t) => t === "mcq");
+        if (!onlyMcq) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Custom Session MVP は questionTypes=['mcq'] のみ許可です",
+          });
+        }
       }
       // constraints は MVP で生成プロンプトに反映されないため、該当フィールドがあれば reject
       // (プレビューで「指定した」と見えて実行時に無視されるのは虚偽表示に近い挙動なので)。

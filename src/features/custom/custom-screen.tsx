@@ -64,16 +64,18 @@ export function CustomScreen() {
         kind: "custom",
         customSpec: snapshot.spec,
       });
-      // setSession を next の前に実行しておき、next 失敗時でも同じセッションを
-      // 再試行できる状態に保つ (孤立セッション回避)。
-      setSession(sessionId);
-      setPhase({ kind: "running", sessionId });
+      // setSession は next 成功後に実行 (store を先に埋めて DrillScreen が半端な
+      // ローディング状態に入るのを防ぐ)。next 失敗時は session row が DB に残るが
+      // 孤立せず、ユーザーが Raw を直して再度「このセッションで始める」を押すと
+      // 新しい session が作られる (MVP はこれで許容、誤 session は UI からは
+      // 到達不能なためコスト上の害は小)。
       try {
         const next = await nextMutation.mutateAsync({ sessionId });
+        setSession(sessionId);
+        setPhase({ kind: "running", sessionId });
         if (!next.done) setQuestion(next.question);
       } catch (e) {
-        // 問題生成失敗時は previewing に戻してエラー表示。drill store もクリア。
-        reset();
+        // 問題生成失敗時は previewing に戻してエラー表示。
         setPhase(snapshot);
         setError(e instanceof Error ? e.message : "問題の生成に失敗しました");
       }

@@ -44,7 +44,8 @@ describe("session.start with customSpec validation", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
-  it("MVP 未対応: questionTypes に mcq が含まれないと BAD_REQUEST", async () => {
+  it("MVP 未対応: questionTypes が mcq 以外を含むと BAD_REQUEST", async () => {
+    // mcq 単体ケース
     await expect(
       caller.session.start({
         kind: "custom",
@@ -52,6 +53,17 @@ describe("session.start with customSpec validation", () => {
           questionCount: 3,
           difficulty: { kind: "absolute", level: "junior" },
           questionTypes: ["written"],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // mcq と混在していても reject (Round 3 厳格化)
+    await expect(
+      caller.session.start({
+        kind: "custom",
+        customSpec: {
+          questionCount: 3,
+          difficulty: { kind: "absolute", level: "junior" },
+          questionTypes: ["mcq", "written"],
         },
       }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
