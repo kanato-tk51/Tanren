@@ -104,8 +104,13 @@ export function InsightsOverviewScreen() {
             Mastery: {data.masteredConcepts} / {data.totalConcepts} concepts
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
           <ProgressBar value={data.masteryPct} />
+          <div>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/insights/map">🗺 Mastery Map を開く</Link>
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

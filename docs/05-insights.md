@@ -99,10 +99,18 @@
   Network (54%)╰─  DB (71%) ─╯
 ```
 
-### 実装
+### 実装 (issue #29, Phase 5+)
 
-- **Recharts** or **D3.js** で実装
-- Phase 2 以降の機能 (MVP では一覧表形式で代替)
+- **依存ゼロの自作 SVG sunburst** (`src/features/insights/mastery-map-screen.tsx`)
+  - Recharts / D3 は追加しない方針 (CLAUDE.md §3: ライブラリ追加は最小限)。
+  - 3 リング構成: 中心=domain / 中層=subdomain / 外層=concept。
+  - 面積は `attempt_count + 1` smoothing (未着手 concept も目視できる大きさを確保)。
+  - 色は 4 tier (untouched/weak/mid/mastered、docs §5.4 の定義通り)。
+  - 外層 concept のタップで `/custom?conceptId=...` にドリルダウン (Custom Session で単一 concept を出題)。
+- 集計ロジックは `src/server/insights/mastery-map.ts` の `fetchMasteryMap`。
+  Insights overview と同じ 3 テーブル結合を使うが、Top N ではなく階層全体を返す。
+- `/insights/map` ルート (`src/app/insights/map/page.tsx`) で SSR 認証チェック + mount。
+- Insights Dashboard の「Your Learning, Today」カードに「🗺 Mastery Map を開く」導線を追加。
 
 ---
 

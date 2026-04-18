@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { DOMAIN_IDS } from "@/db/schema/_constants";
 import { fetchHistory } from "@/server/insights/history";
+import { fetchMasteryMap } from "@/server/insights/mastery-map";
 import { fetchInsightsOverview } from "@/server/insights/overview";
 import { fetchSearch } from "@/server/insights/search";
 
@@ -13,6 +14,12 @@ export const insightsRouter = router({
    * mastery 全体、top3 strongest / weakest / blindSpots / decaying を返す。
    */
   overview: protectedProcedure.query(({ ctx }) => fetchInsightsOverview(ctx.user.id)),
+
+  /**
+   * Mastery Map (issue #29, docs/05 §5.4)。
+   * 全 concept を domain → subdomain → concept の 3 階層で返す (サンバースト用)。
+   */
+  masteryMap: protectedProcedure.query(({ ctx }) => fetchMasteryMap(ctx.user.id)),
 
   /**
    * History 画面 (issue #21, docs/05 §5.5)。

@@ -15,6 +15,11 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // `server-only` は import されると常に throw する「poison pill」モジュール
+      // (Next.js bundler が検知して client import を禁止するための仕組み)。
+      // Vitest の Node 環境では通常の import として実行されて全テストが落ちるため、
+      // test 実行時のみ空モジュールに差し替える (issue #29)。
+      "server-only": path.resolve(__dirname, "./src/test/server-only-stub.ts"),
     },
   },
 });
