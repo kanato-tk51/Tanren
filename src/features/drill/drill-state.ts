@@ -20,6 +20,10 @@ export type DrillGrading = {
   questionType: string | null;
   /** 反論済みフラグ (1 attempt につき 1 回) */
   rebutted?: boolean;
+  /** 正解のテキスト (copy-for-llm / 採点後の表示に使う) */
+  correctAnswer: string | null;
+  /** ユーザーが実際に回答した文字列 (mcq は選択した選択肢の文言) */
+  userAnswer: string | null;
 };
 
 export type DrillSummary = {

@@ -264,6 +264,7 @@ export const sessionRouter = router({
         score: result.score,
         feedback: result.feedback,
         questionType: result.questionType,
+        correctAnswer: result.correctAnswer,
       };
     }),
 

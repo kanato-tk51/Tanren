@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc/react";
 
+import { CopyForLlmButton } from "./copy-for-llm-button";
 import { RebuttalForm } from "./rebuttal-form";
 import { useDrillStore } from "./drill-state";
 
@@ -87,6 +88,8 @@ export function DrillScreen() {
         feedback: result.feedback,
         correctIndex: result.correct ? selectedIndex : null,
         questionType: result.questionType ?? null,
+        correctAnswer: result.correctAnswer ?? null,
+        userAnswer: answer,
       });
     } catch (e) {
       setErrorMessage(toMessage(e));
@@ -236,12 +239,29 @@ export function DrillScreen() {
             </button>
           );
         })}
-        {phase === "graded" && grading && (
+        {phase === "graded" && grading && question && (
           <div className="space-y-2">
             <div className="bg-muted/50 rounded-md p-3 text-sm">{grading.feedback}</div>
-            {grading.questionType && grading.questionType !== "mcq" && (
-              <RebuttalForm attemptId={grading.attemptId} />
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <CopyForLlmButton
+                attemptId={grading.attemptId}
+                question={{
+                  prompt: question.prompt,
+                  tags: question.tags,
+                  hint: question.hint,
+                }}
+                correctAnswer={grading.correctAnswer}
+                userAnswer={grading.userAnswer}
+                grading={{
+                  correct: grading.correct,
+                  score: grading.score,
+                  feedback: grading.feedback,
+                }}
+              />
+              {grading.questionType && grading.questionType !== "mcq" && (
+                <RebuttalForm attemptId={grading.attemptId} />
+              )}
+            </div>
           </div>
         )}
         {errorMessage && (
