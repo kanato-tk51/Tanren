@@ -13,6 +13,8 @@ import {
 import { getOpenAI } from "@/lib/openai/client";
 import { MODEL_MAIN } from "@/lib/openai/models";
 
+import { fetchUnresolvedMisconceptionsForGeneration } from "../grader/extract-misconception";
+
 import { findCachedQuestion } from "./cache";
 import { buildMcqPrompt, MCQ_PROMPT_VERSION } from "./prompts";
 import { GeneratedMcqSchema, MCQ_JSON_SCHEMA, type GeneratedMcq } from "./schema";
@@ -23,6 +25,11 @@ export type GenerateMcqInput = {
   thinkingStyle: ThinkingStyle | null;
   /** true のときキャッシュを使わず必ず新規生成 (開発用) */
   forceFresh?: boolean;
+  /**
+   * 指定されると prompt に「この concept で繰り返している誤概念」を矯正指示として
+   * 注入する (issue #19, docs/03 §3.4.1)。未指定なら注入しない。
+   */
+  userId?: string;
 };
 
 export type GenerateMcqResult = {
@@ -144,7 +151,18 @@ export async function generateMcq(
   const concept = await loadConcept(input.conceptId);
   assertDifficultyAllowed(concept, input.difficulty);
 
-  if (!input.forceFresh) {
+  // 誤概念矯正モード: ユーザーが繰り返している誤解がある場合、その矯正を狙う問題は
+  // user-specific。共有 questions キャッシュを汚染しないよう、このパスでは cache を
+  // 一切使わず / 書き込みもせず必ず新規生成する (Codex Round 2 P1-b)。
+  const userMisconceptions = input.userId
+    ? await fetchUnresolvedMisconceptionsForGeneration({
+        userId: input.userId,
+        conceptId: input.conceptId,
+      })
+    : [];
+  const correctiveMode = userMisconceptions.length > 0;
+
+  if (!input.forceFresh && !correctiveMode) {
     // キャッシュが十分育っていれば 50/50 で cache hit / 新規生成を選ぶ (docs/03 §3.3.4)
     const cacheCount = await countCachedQuestions({
       conceptId: input.conceptId,
@@ -182,6 +200,7 @@ export async function generateMcq(
     difficulty: input.difficulty,
     thinkingStyle: input.thinkingStyle,
     pastQuestionsSummary: past,
+    userMisconceptions,
   });
 
   const generated = await llm({ model: MODEL_MAIN, system, user });
@@ -202,9 +221,14 @@ export async function generateMcq(
       tags: generated.tags,
       generatedBy: MODEL_MAIN,
       promptVersion: MCQ_PROMPT_VERSION,
-      // 新規問題は出題時点で配信済みとマークする (次回は別問題が未使用として優先される)
+      // 新規問題は出題時点で配信済みとマークする (次回は別問題が未使用として優先される)。
+      // 誤概念矯正モード (user-specific な prompt で生成された問題) は共有キャッシュを
+      // 汚染しないよう retired=true で保存し、cache 検索対象から除外する
+      // (Codex Round 2 P1-b)。
       serveCount: 1,
       lastServedAt: now,
+      retired: correctiveMode,
+      retiredReason: correctiveMode ? "corrective (user-specific misconception)" : null,
     })
     .returning();
 

@@ -26,6 +26,12 @@ export type McqPromptInput = {
   thinkingStyle: ThinkingStyle | null;
   /** 直近 30 日の既出問題の要約。文字列の配列で渡す。空配列なら "(none)" を出す */
   pastQuestionsSummary: string[];
+  /**
+   * この concept 上でユーザーが繰り返している誤概念。issue #19 で注入する「矯正指示」の入口。
+   * 各 { description, count } は docs/05 §5.8 の misconceptions テーブルから直近の上位 N 件。
+   * 空配列なら「(none)」として出力。
+   */
+  userMisconceptions?: Array<{ description: string; count: number }>;
 };
 
 /**
@@ -42,6 +48,16 @@ export function buildMcqPrompt(input: McqPromptInput): {
       ? "(none)"
       : input.pastQuestionsSummary.map((s) => `- ${s}`).join("\n");
 
+  const misconceptions =
+    !input.userMisconceptions || input.userMisconceptions.length === 0
+      ? "(none)"
+      : input.userMisconceptions
+          .map(
+            (m) =>
+              `- "${m.description}" (seen ${m.count} times; generate a question that would reveal or correct this)`,
+          )
+          .join("\n");
+
   return renderTemplate(MCQ_TEMPLATE_PATH, {
     conceptId: input.concept.id,
     conceptName: input.concept.name,
@@ -52,5 +68,6 @@ export function buildMcqPrompt(input: McqPromptInput): {
     thinkingStyle: input.thinkingStyle ?? "(none)",
     styleInstruction: styleInstruction(input.thinkingStyle),
     pastQuestionsSummary: past,
+    userMisconceptions: misconceptions,
   });
 }

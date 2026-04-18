@@ -1,9 +1,12 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
+import { after } from "next/server";
 
 import { getDb } from "@/db/client";
 import {
   attempts,
+  concepts,
+  misconceptions,
   questions,
   sessions,
   type NewAttempt,
@@ -12,6 +15,7 @@ import {
 } from "@/db/schema";
 import { updateMasteryAfterAttempt } from "@/server/scheduler/update-mastery";
 
+import { extractAndPersistMisconception } from "./extract-misconception";
 import { gradeMcq } from "./mcq";
 import { gradeShort } from "./short";
 import { gradeWritten } from "./written";
@@ -50,6 +54,38 @@ async function loadQuestion(questionId: string): Promise<Question> {
   const q = rows[0];
   if (!q) throw new TRPCError({ code: "NOT_FOUND", message: `unknown question: ${questionId}` });
   return q;
+}
+
+/**
+ * 同 concept で直近 3 件連続で正解していたら、その concept の unresolved misconception を
+ * `resolved=true` に遷移させる (docs/05 §5.8 「矯正できたら resolved=1」の近似)。
+ * 厳密には「その misconception が直接矯正されたか」まで見ないが、MVP ではユーザーが
+ * 同 concept で連続正答 = 概ね誤解が解けた、という近似で運用する。
+ */
+async function maybeResolveMisconceptions(params: {
+  userId: string;
+  conceptId: string;
+}): Promise<void> {
+  const STREAK_TO_RESOLVE = 3;
+  const db = getDb();
+  const recent = await db
+    .select({ correct: attempts.correct })
+    .from(attempts)
+    .where(and(eq(attempts.userId, params.userId), eq(attempts.conceptId, params.conceptId)))
+    .orderBy(desc(attempts.createdAt))
+    .limit(STREAK_TO_RESOLVE);
+  if (recent.length < STREAK_TO_RESOLVE) return;
+  if (!recent.every((a) => a.correct === true)) return;
+  await db
+    .update(misconceptions)
+    .set({ resolved: true })
+    .where(
+      and(
+        eq(misconceptions.userId, params.userId),
+        eq(misconceptions.conceptId, params.conceptId),
+        eq(misconceptions.resolved, false),
+      ),
+    );
 }
 
 /** session が呼び出し元ユーザーのものであることを確認。別 user の session への書き込みを防ぐ */
@@ -158,6 +194,52 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
         userId: input.userId,
         conceptId: question.conceptId,
         score: grade.score,
+      });
+    }
+    // 誤答 + reason_given が与えられたときだけ誤概念抽出を走らせる (issue #19)。
+    // 素の detach promise は Vercel Functions の teardown で切られる可能性があるため、
+    // Next.js の after() で post-response に予約する (Round 4 指摘)。
+    // 失敗は console.error でログに残す (Sentry 導入 #27 後は captureException に差し替え)。
+    if (grade.correct === false && input.reasonGiven && input.reasonGiven.trim().length > 0) {
+      const reason = input.reasonGiven;
+      const userId = input.userId;
+      const conceptId = question.conceptId;
+      const qPayload = { prompt: question.prompt, answer: question.answer };
+      const userAnswer = input.userAnswer;
+      after(async () => {
+        try {
+          const conceptRow = await getDb()
+            .select({ id: concepts.id, name: concepts.name })
+            .from(concepts)
+            .where(eq(concepts.id, conceptId))
+            .limit(1);
+          if (!conceptRow[0]) return;
+          await extractAndPersistMisconception({
+            userId,
+            concept: conceptRow[0],
+            question: qPayload,
+            userAnswer,
+            reasonGiven: reason,
+          });
+        } catch (err) {
+           
+          console.error("extractAndPersistMisconception failed", err);
+        }
+      });
+    }
+    // 正答で unresolved な misconceptions があれば resolve に遷移させる (docs/05 §5.8)。
+    // resolve は誤概念履歴側の状態で FSRS とは独立なので updateMastery=false でも走らせる
+    // (Round 4 指摘)。1 回の正答では早計なので「直近 3 連続正解」を近似条件にする。
+    if (grade.correct === true) {
+      const userId = input.userId;
+      const conceptId = question.conceptId;
+      after(async () => {
+        try {
+          await maybeResolveMisconceptions({ userId, conceptId });
+        } catch (err) {
+           
+          console.error("maybeResolveMisconceptions failed", err);
+        }
       });
     }
     return grade;

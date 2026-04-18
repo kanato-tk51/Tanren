@@ -84,8 +84,40 @@ describe("buildMcqPrompt", () => {
       ## Avoid duplicates (可変)
 
       Past recent framings for this concept (last 30 days, if any):
-      - setTimeout の評価タイミングを問う問題",
+      - setTimeout の評価タイミングを問う問題
+
+      ## User misconceptions to correct (可変、任意)
+
+      (none)",
       }
     `);
+  });
+
+  it("userMisconceptions があると矯正指示が user セクションに注入される (issue #19)", () => {
+    const out = buildMcqPrompt({
+      concept: {
+        id: "network.tls.key_exchange",
+        name: "TLS 鍵交換",
+        description: null,
+        domainId: "network",
+        subdomainId: "tls",
+      },
+      difficulty: "mid",
+      thinkingStyle: "why",
+      pastQuestionsSummary: [],
+      userMisconceptions: [
+        { description: "tls 1.3 の鍵交換は rsa と誤解", count: 4 },
+        { description: "rsa 鍵交換はおすすめ", count: 2 },
+      ],
+    });
+    expect(out.user).toContain("## User misconceptions to correct");
+    expect(out.user).toContain('"tls 1.3 の鍵交換は rsa と誤解" (seen 4 times');
+    expect(out.user).toContain('"rsa 鍵交換はおすすめ" (seen 2 times');
+    // misconceptions セクションに (none) が出ないことの確認 (concept description null の
+    // "description: (none)" は別セクションなので除外)
+    const misconceptionsSection = out.user.slice(
+      out.user.indexOf("## User misconceptions to correct"),
+    );
+    expect(misconceptionsSection).not.toContain("(none)");
   });
 });
