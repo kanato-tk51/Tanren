@@ -141,6 +141,19 @@ export const sessionRouter = router({
           });
         }
       }
+      // domains / subdomains / excludeConcepts も現状プロンプトに反映されないため、
+      // 同じ理由 (虚偽表示回避) で reject する。MVP は concepts[0] で concept を直接指定する運用。
+      if (
+        input.customSpec?.domains?.length ||
+        input.customSpec?.subdomains?.length ||
+        input.customSpec?.excludeConcepts?.length
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Custom Session MVP は domains / subdomains / excludeConcepts 未対応です (concepts[0] で直接指定してください)",
+        });
+      }
 
       const db = getDb();
       // 問題数は customSpec.questionCount があれば優先。なければ input.targetCount、なければ既定 5
@@ -209,7 +222,8 @@ export const sessionRouter = router({
       let questionMeta: CopyForLlmQuestionMeta | null = null;
       try {
         // Custom Session は spec.customSpec (absolute difficulty + thinking_style 等) を優先する。
-        // concept 選定は customSpec.concepts → customSpec.domains → daily pick の順で fallback。
+        // MVP での concept 選定: customSpec.concepts[0] → daily pick の 2 段階。
+        // domains / subdomains / excludeConcepts は session.start で reject 済みのためここには来ない。
         const customSpec = spec.customSpec;
         const customConceptId = customSpec?.concepts?.[0];
         const conceptRow = input.conceptId

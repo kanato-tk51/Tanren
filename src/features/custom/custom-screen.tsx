@@ -56,19 +56,27 @@ export function CustomScreen() {
 
   const onStart = useCallback(async () => {
     if (phase.kind !== "previewing") return;
+    const snapshot = phase;
     setError(null);
     try {
       reset();
       const { sessionId } = await startMutation.mutateAsync({
         kind: "custom",
-        customSpec: phase.spec,
+        customSpec: snapshot.spec,
       });
       // setSession を next の前に実行しておき、next 失敗時でも同じセッションを
       // 再試行できる状態に保つ (孤立セッション回避)。
       setSession(sessionId);
       setPhase({ kind: "running", sessionId });
-      const next = await nextMutation.mutateAsync({ sessionId });
-      if (!next.done) setQuestion(next.question);
+      try {
+        const next = await nextMutation.mutateAsync({ sessionId });
+        if (!next.done) setQuestion(next.question);
+      } catch (e) {
+        // 問題生成失敗時は previewing に戻してエラー表示。drill store もクリア。
+        reset();
+        setPhase(snapshot);
+        setError(e instanceof Error ? e.message : "問題の生成に失敗しました");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "セッション開始に失敗しました");
     }
@@ -167,8 +175,9 @@ function SpecPreview({ spec }: { spec: CustomSessionSpec }) {
   return (
     <div className="bg-muted/40 space-y-1 rounded-md border p-3">
       <div className="text-muted-foreground mb-1 text-xs">
-        パース結果 (読み取り専用)。MVP では concepts[0] / difficulty / thinkingStyles[0] のみ
-        出題に反映。difficulty は beginner/junior/mid/senior のみサポート。
+        パース結果 (読み取り専用)。MVP では concepts[0] / difficulty / thinkingStyles[0] /
+        questionCount のみ反映。difficulty は beginner/junior/mid/senior のみ、 domains / subdomains
+        / excludeConcepts / questionTypes (mcq 以外) / constraints は 開始時に reject されます。
       </div>
       <SpecRow label="ドメイン" value={spec.domains} />
       <SpecRow label="サブドメイン" value={spec.subdomains} />

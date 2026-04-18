@@ -57,6 +57,39 @@ describe("session.start with customSpec validation", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
+  it("MVP 未対応: domains / subdomains / excludeConcepts は BAD_REQUEST", async () => {
+    await expect(
+      caller.session.start({
+        kind: "custom",
+        customSpec: {
+          questionCount: 3,
+          difficulty: { kind: "absolute", level: "junior" },
+          domains: ["network"],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      caller.session.start({
+        kind: "custom",
+        customSpec: {
+          questionCount: 3,
+          difficulty: { kind: "absolute", level: "junior" },
+          subdomains: ["network.tcp"],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      caller.session.start({
+        kind: "custom",
+        customSpec: {
+          questionCount: 3,
+          difficulty: { kind: "absolute", level: "junior" },
+          excludeConcepts: ["network.tcp.basics"],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
   it("MVP 未対応: constraints の実効フィールドがあれば BAD_REQUEST", async () => {
     await expect(
       caller.session.start({
