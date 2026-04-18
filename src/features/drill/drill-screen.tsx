@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc/react";
 
+import { RebuttalForm } from "./rebuttal-form";
 import { useDrillStore } from "./drill-state";
 
 export function DrillScreen() {
@@ -85,6 +86,7 @@ export function DrillScreen() {
         score: result.score,
         feedback: result.feedback,
         correctIndex: result.correct ? selectedIndex : null,
+        questionType: result.questionType ?? null,
       });
     } catch (e) {
       setErrorMessage(toMessage(e));
@@ -235,7 +237,12 @@ export function DrillScreen() {
           );
         })}
         {phase === "graded" && grading && (
-          <div className="bg-muted/50 rounded-md p-3 text-sm">{grading.feedback}</div>
+          <div className="space-y-2">
+            <div className="bg-muted/50 rounded-md p-3 text-sm">{grading.feedback}</div>
+            {grading.questionType && grading.questionType !== "mcq" && (
+              <RebuttalForm attemptId={grading.attemptId} />
+            )}
+          </div>
         )}
         {errorMessage && (
           <div className="border-destructive/60 text-destructive flex items-start gap-2 rounded-md border bg-red-50 p-3 text-sm dark:bg-red-950">

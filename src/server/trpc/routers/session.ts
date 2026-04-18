@@ -263,6 +263,7 @@ export const sessionRouter = router({
         correct: result.correct,
         score: result.score,
         feedback: result.feedback,
+        questionType: result.questionType,
       };
     }),
 

@@ -16,6 +16,10 @@ export type DrillGrading = {
   feedback: string;
   /** 選択したインデックスが正解だったかを UI ハイライトに使う */
   correctIndex: number | null;
+  /** 反論ボタン出し分け用 (mcq は反論不可) */
+  questionType: string | null;
+  /** 反論済みフラグ (1 attempt につき 1 回) */
+  rebutted?: boolean;
 };
 
 export type DrillSummary = {
@@ -41,6 +45,7 @@ type Actions = {
   setQuestion: (q: DrillQuestion | null) => void;
   setSelected: (idx: number) => void;
   setGrading: (g: DrillGrading) => void;
+  updateGrading: (patch: Partial<DrillGrading>) => void;
   setSummary: (s: DrillSummary) => void;
 };
 
@@ -73,6 +78,8 @@ export const useDrillStore = create<DrillState & Actions>((set) => ({
   setSelected: (idx) => set({ selectedIndex: idx }),
 
   setGrading: (g) => set({ grading: g, phase: "graded" }),
+
+  updateGrading: (patch) => set((s) => (s.grading ? { grading: { ...s.grading, ...patch } } : {})),
 
   setSummary: (s) => set({ summary: s, phase: "finished" }),
 }));

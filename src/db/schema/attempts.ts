@@ -36,6 +36,23 @@ export type MisconceptionTag = {
   description: string;
 };
 
+export type RebuttalRecord = {
+  /** 反論メッセージ (ユーザーが正解だと主張する根拠) */
+  message: string;
+  /** 元の採点 */
+  original: {
+    correct: boolean | null;
+    score: number | null;
+    feedback: string | null;
+  };
+  /** 再採点後の判定が変わったか (false なら「反論されたが変わらなかった」) */
+  overturned: boolean;
+  /** 再採点で使ったプロンプト版 */
+  promptVersion: string;
+  /** 反論時刻 (ISO 8601) */
+  at: string;
+};
+
 export const attempts = pgTable(
   "attempts",
   {
@@ -64,6 +81,7 @@ export const attempts = pgTable(
     feedback: text("feedback"),
     rubricChecks: jsonb("rubric_checks").$type<RubricCheckResult[]>(),
     misconceptionTags: jsonb("misconception_tags").$type<MisconceptionTag[]>(),
+    rebuttal: jsonb("rebuttal").$type<RebuttalRecord>(),
     reasonGiven: text("reason_given"),
     copiedForExternal: integer("copied_for_external").notNull().default(0),
     /** 採点に使ったプロンプトの版 (CLAUDE.md §4.5)。mcq のようにプロンプト不使用の採点は null */

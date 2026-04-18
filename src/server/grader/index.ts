@@ -33,6 +33,8 @@ export type GradeAttemptResult = {
   score: number | null;
   feedback: string;
   rubricChecks: RubricCheckResult[];
+  /** submit 側で UI 出し分けに使う (MVP では "mcq" / "short" / "written" など) */
+  questionType: string;
 };
 
 async function loadQuestion(questionId: string): Promise<Question> {
@@ -91,6 +93,7 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
       score: result.score,
       feedback: result.feedback,
       rubricChecks: [],
+      questionType: question.type,
     };
   } else if (question.type === "short" || question.type === "written") {
     const result =
@@ -118,6 +121,7 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
       score: result.score,
       feedback: result.feedback,
       rubricChecks: result.rubricChecks,
+      questionType: question.type,
     };
   } else {
     throw new TRPCError({
@@ -159,5 +163,6 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
     score: prev.score,
     feedback: prev.feedback ?? "",
     rubricChecks: (prev.rubricChecks ?? []) as typeof grade.rubricChecks,
+    questionType: question.type,
   };
 }
