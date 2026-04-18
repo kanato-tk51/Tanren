@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 
-import { useDrillStore, type DrillQuestion } from "./drill-state";
+import { normalizeRubricChecks, useDrillStore, type DrillQuestion } from "./drill-state";
 
 const sampleQuestion: DrillQuestion = {
   id: "q-1",
@@ -80,5 +80,51 @@ describe("useDrillStore", () => {
     expect(useDrillStore.getState().phase).toBe("idle");
     expect(useDrillStore.getState().sessionId).toBe(null);
     expect(useDrillStore.getState().question).toBe(null);
+  });
+
+  it("updateGrading で rubricChecks を rebut 経由で差し替えられる (回帰テスト)", () => {
+    useDrillStore.getState().setSession("s-1");
+    useDrillStore.getState().setQuestion(sampleQuestion);
+    useDrillStore.getState().setGrading({
+      attemptId: "a-1",
+      correct: false,
+      score: 0.4,
+      feedback: "旧判定",
+      correctIndex: null,
+      questionType: "short",
+      correctAnswer: "A",
+      userAnswer: "B",
+      rubricChecks: [{ id: "r1", passed: false, comment: "旧 comment" }],
+    });
+    useDrillStore.getState().updateGrading({
+      correct: true,
+      score: 0.9,
+      feedback: "新判定",
+      rebutted: true,
+      rubricChecks: normalizeRubricChecks([{ id: "r1", passed: true, comment: "反論後に合格" }]),
+    });
+    const s = useDrillStore.getState();
+    expect(s.grading?.correct).toBe(true);
+    expect(s.grading?.rebutted).toBe(true);
+    expect(s.grading?.rubricChecks).toEqual([{ id: "r1", passed: true, comment: "反論後に合格" }]);
+  });
+});
+
+describe("normalizeRubricChecks", () => {
+  it("null / undefined は空配列", () => {
+    expect(normalizeRubricChecks(null)).toEqual([]);
+    expect(normalizeRubricChecks(undefined)).toEqual([]);
+  });
+
+  it("comment null は空文字に正規化", () => {
+    expect(normalizeRubricChecks([{ id: "r1", passed: true, comment: null }])).toEqual([
+      { id: "r1", passed: true, comment: "" },
+    ]);
+  });
+
+  it("通常入力は素通し", () => {
+    expect(normalizeRubricChecks([{ id: "r1", passed: false, comment: "足りない" }])).toEqual([
+      { id: "r1", passed: false, comment: "足りない" },
+    ]);
   });
 });

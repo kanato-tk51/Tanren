@@ -2,6 +2,17 @@ import { create } from "zustand";
 
 import type { CopyForLlmQuestionMeta } from "@/lib/share/copy-for-llm";
 
+/** submit / rebut 経路の API レスポンスから drill store 用の rubricChecks を正規化する */
+export function normalizeRubricChecks(
+  raw: Array<{ id: string; passed: boolean; comment?: string | null }> | null | undefined,
+): Array<{ id: string; passed: boolean; comment: string }> {
+  return (raw ?? []).map((r) => ({
+    id: r.id,
+    passed: r.passed,
+    comment: r.comment ?? "",
+  }));
+}
+
 export type DrillQuestion = {
   id: string;
   prompt: string;

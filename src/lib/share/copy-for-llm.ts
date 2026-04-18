@@ -148,10 +148,10 @@ export function buildCopyForLlm(input: CopyForLlmInput): string {
   if (grading.correct !== null) {
     lines.push(`- 判定: ${grading.correct ? "○ 正解" : "× 不正解"}`);
   }
-  if (grading.rubricChecks && grading.rubricChecks.length > 0) {
-    lines.push("- ルーブリック:");
-    lines.push(formatRubricChecks(grading.rubricChecks));
-  }
+  // docs §7.13.4 のテンプレに合わせてルーブリックセクションは常に出す
+  // (mcq / rubric なし short の場合も formatRubricChecks で「ルーブリックなし」表示)
+  lines.push("- ルーブリック:");
+  lines.push(formatRubricChecks(grading.rubricChecks ?? []));
   if (grading.feedback) {
     lines.push(`- フィードバック: ${sanitize(grading.feedback)}`);
   }

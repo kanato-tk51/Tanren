@@ -72,6 +72,15 @@ describe("buildCopyForLlm", () => {
     expect(out).not.toContain("- フィードバック:");
   });
 
+  it("rubricChecks が空でも ルーブリックセクションは docs §7.13.4 通り常に出す", () => {
+    const out = buildCopyForLlm({
+      ...base,
+      grading: { ...base.grading, rubricChecks: [] },
+    });
+    expect(out).toContain("- ルーブリック:");
+    expect(out).toContain("(採点ルーブリックなし)");
+  });
+
   it("user answer が 2000 文字を超えたら ... で切る", () => {
     const long = "あ".repeat(2500);
     const out = buildCopyForLlm({ ...base, userAnswer: long });

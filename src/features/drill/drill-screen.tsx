@@ -16,7 +16,7 @@ import { trpc } from "@/lib/trpc/react";
 
 import { CopyForLlmButton } from "./copy-for-llm-button";
 import { RebuttalForm } from "./rebuttal-form";
-import { useDrillStore } from "./drill-state";
+import { normalizeRubricChecks, useDrillStore } from "./drill-state";
 
 export function DrillScreen() {
   const { phase, sessionId, question, selectedIndex, grading, summary } = useDrillStore();
@@ -90,11 +90,7 @@ export function DrillScreen() {
         questionType: result.questionType ?? null,
         correctAnswer: result.correctAnswer ?? null,
         userAnswer: answer,
-        rubricChecks: (result.rubricChecks ?? []).map((r) => ({
-          id: r.id,
-          passed: r.passed,
-          comment: r.comment ?? "",
-        })),
+        rubricChecks: normalizeRubricChecks(result.rubricChecks),
       });
     } catch (e) {
       setErrorMessage(toMessage(e));
