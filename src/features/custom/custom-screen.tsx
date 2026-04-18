@@ -21,7 +21,7 @@ import type { CustomSessionSpec } from "@/server/parser/schema";
 type Phase =
   | { kind: "input" }
   | { kind: "previewing"; raw: string; spec: CustomSessionSpec }
-  | { kind: "running" };
+  | { kind: "running"; sessionId: string };
 
 /**
  * Custom Session 実行フロー (issue #18)。
@@ -63,17 +63,25 @@ export function CustomScreen() {
         kind: "custom",
         customSpec: phase.spec,
       });
-      const next = await nextMutation.mutateAsync({ sessionId });
+      // setSession を next の前に実行しておき、next 失敗時でも同じセッションを
+      // 再試行できる状態に保つ (孤立セッション回避)。
       setSession(sessionId);
+      setPhase({ kind: "running", sessionId });
+      const next = await nextMutation.mutateAsync({ sessionId });
       if (!next.done) setQuestion(next.question);
-      setPhase({ kind: "running" });
     } catch (e) {
       setError(e instanceof Error ? e.message : "セッション開始に失敗しました");
     }
   }, [phase, startMutation, nextMutation, setSession, setQuestion, reset]);
 
+  const backToInput = useCallback(() => {
+    reset();
+    setError(null);
+    setPhase({ kind: "input" });
+  }, [reset]);
+
   if (phase.kind === "running") {
-    return <DrillScreen />;
+    return <DrillScreen onReset={backToInput} skipInitialStartCard />;
   }
 
   return (
@@ -158,7 +166,10 @@ function SpecRow({ label, value }: { label: string; value: unknown }) {
 function SpecPreview({ spec }: { spec: CustomSessionSpec }) {
   return (
     <div className="bg-muted/40 space-y-1 rounded-md border p-3">
-      <div className="text-muted-foreground mb-1 text-xs">パース結果 (読み取り専用)</div>
+      <div className="text-muted-foreground mb-1 text-xs">
+        パース結果 (読み取り専用)。MVP では concepts[0] / difficulty / thinkingStyles[0] のみ
+        出題に反映。difficulty は beginner/junior/mid/senior のみサポート。
+      </div>
       <SpecRow label="ドメイン" value={spec.domains} />
       <SpecRow label="サブドメイン" value={spec.subdomains} />
       <SpecRow label="concept" value={spec.concepts} />

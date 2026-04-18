@@ -107,6 +107,41 @@ export const sessionRouter = router({
         });
       }
 
+      // MVP 受け入れ基準 (Issue #18): 絶対難易度は beginner/junior/mid/senior のみ。
+      // staff/principal は Custom Session では Phase 5+ で解禁するためここで reject する。
+      if (input.customSpec?.difficulty) {
+        const level = input.customSpec.difficulty.level;
+        if (level !== "beginner" && level !== "junior" && level !== "mid" && level !== "senior") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Custom Session MVP は difficulty=${level} に未対応 (beginner/junior/mid/senior のみ)`,
+          });
+        }
+      }
+      // MVP は mcq 生成のみ (questionTypes が指定されていて mcq を含まなければ reject)。
+      if (
+        input.customSpec?.questionTypes &&
+        input.customSpec.questionTypes.length > 0 &&
+        !input.customSpec.questionTypes.includes("mcq")
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Custom Session MVP は mcq のみ生成可能です",
+        });
+      }
+      // constraints は MVP で生成プロンプトに反映されないため、該当フィールドがあれば reject
+      // (プレビューで「指定した」と見えて実行時に無視されるのは虚偽表示に近い挙動なので)。
+      if (input.customSpec?.constraints) {
+        const c = input.customSpec.constraints;
+        if (c.codeLanguage || c.timeLimitSec || c.mustInclude?.length || c.avoid?.length) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Custom Session MVP は constraints (codeLanguage/timeLimitSec/mustInclude/avoid) 未対応です",
+          });
+        }
+      }
+
       const db = getDb();
       // 問題数は customSpec.questionCount があれば優先。なければ input.targetCount、なければ既定 5
       const targetCount =

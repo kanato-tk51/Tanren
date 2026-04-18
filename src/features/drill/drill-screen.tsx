@@ -18,9 +18,18 @@ import { CopyForLlmButton } from "./copy-for-llm-button";
 import { RebuttalForm } from "./rebuttal-form";
 import { normalizeRubricChecks, useDrillStore } from "./drill-state";
 
-export function DrillScreen() {
+type DrillScreenProps = {
+  /** 完了後「ホームに戻る」を押したときの遷移ハンドラ (例: /custom に戻る)。
+   *  未指定ならデフォルトの useDrillStore.reset() が走り、Daily Drill 開始カードに戻る。 */
+  onReset?: () => void;
+  /** idle で出るスタートカードの挙動を差し替える (例: /custom では使わない) */
+  skipInitialStartCard?: boolean;
+};
+
+export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps = {}) {
   const { phase, sessionId, question, selectedIndex, grading, summary } = useDrillStore();
   const { reset, setSession, setQuestion, setSelected, setGrading, setSummary } = useDrillStore();
+  const handleReset = onReset ?? reset;
 
   const startMutation = trpc.session.start.useMutation();
   const nextMutation = trpc.session.next.useMutation();
@@ -142,6 +151,10 @@ export function DrillScreen() {
   ]);
 
   if (phase === "idle") {
+    if (skipInitialStartCard) {
+      // 親 (/custom 等) が自前で session を用意する構成。何も出さない。
+      return null;
+    }
     return (
       <Card className="w-full max-w-xl">
         <CardHeader>
@@ -169,7 +182,14 @@ export function DrillScreen() {
           </CardDescription>
         </CardHeader>
         <CardFooter>
-          <Button onClick={reset}>ホームに戻る</Button>
+          <Button
+            onClick={() => {
+              reset();
+              handleReset();
+            }}
+          >
+            ホームに戻る
+          </Button>
         </CardFooter>
       </Card>
     );

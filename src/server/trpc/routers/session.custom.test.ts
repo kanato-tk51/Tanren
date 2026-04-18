@@ -28,4 +28,45 @@ describe("session.start with customSpec validation", () => {
       }),
     ).rejects.toBeInstanceOf(TRPCError);
   });
+
+  it("MVP 未対応: difficulty=staff / principal は BAD_REQUEST", async () => {
+    await expect(
+      caller.session.start({
+        kind: "custom",
+        customSpec: { questionCount: 3, difficulty: { kind: "absolute", level: "staff" } },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      caller.session.start({
+        kind: "custom",
+        customSpec: { questionCount: 3, difficulty: { kind: "absolute", level: "principal" } },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("MVP 未対応: questionTypes に mcq が含まれないと BAD_REQUEST", async () => {
+    await expect(
+      caller.session.start({
+        kind: "custom",
+        customSpec: {
+          questionCount: 3,
+          difficulty: { kind: "absolute", level: "junior" },
+          questionTypes: ["written"],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("MVP 未対応: constraints の実効フィールドがあれば BAD_REQUEST", async () => {
+    await expect(
+      caller.session.start({
+        kind: "custom",
+        customSpec: {
+          questionCount: 3,
+          difficulty: { kind: "absolute", level: "junior" },
+          constraints: { mustInclude: ["TLS 1.3"] },
+        },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
 });
