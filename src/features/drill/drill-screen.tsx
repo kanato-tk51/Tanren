@@ -136,22 +136,21 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
   useEffect(() => {
     if (!sessionId) return;
 
-    // beforeunload: タブ閉じ / reload
+    let trapPushed = false;
+
+    function pushTrap() {
+      if (trapPushed) return;
+      window.history.pushState({ tanren: "drill-guard" }, "");
+      trapPushed = true;
+    }
+
     function onBeforeUnload(e: BeforeUnloadEvent) {
       const p = phaseRef.current;
       if (p !== "asking" && p !== "graded") return;
       e.preventDefault();
       e.returnValue = "";
     }
-    window.addEventListener("beforeunload", onBeforeUnload);
 
-    // popstate guard: SPA 内の戻るジェスチャ
-    let trapPushed = false;
-    function pushTrap() {
-      if (trapPushed) return;
-      window.history.pushState({ tanren: "drill-guard" }, "");
-      trapPushed = true;
-    }
     function onPopState() {
       // popstate 発火 = trap entry が consume された
       trapPushed = false;
@@ -159,22 +158,32 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
       if (p !== "asking" && p !== "graded") return;
       const leave = window.confirm("セッションを離れますか? 回答中の進捗は失われます。");
       if (leave) {
-        // 確認 OK: もう 1 段戻って元の画面へ
+        // 自分自身を外してから history.back() を呼ぶ。続けて発火する popstate は
+        // listener なしで silent に処理され、confirm の再入や多重 back を起こさない
+        // (Codex Round 2 指摘 #1)。
+        window.removeEventListener("popstate", onPopState);
+        window.removeEventListener("beforeunload", onBeforeUnload);
         window.history.back();
       } else {
         // キャンセル: trap を再度積んで /drill に留まる
         pushTrap();
       }
     }
+
     pushTrap();
     window.addEventListener("popstate", onPopState);
+    window.addEventListener("beforeunload", onBeforeUnload);
 
     return () => {
-      window.removeEventListener("beforeunload", onBeforeUnload);
       window.removeEventListener("popstate", onPopState);
-      // 残った trap entry はクリーンアップしない (history.back を呼ぶと
-      // セッション完了直後に意図しない戻りが起きる)。stack に 1 つ余分に残るだけで、
-      // 次回ユーザーが back した時に consume される。
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      // session が終了したら sentinel を回収して、次の戻る操作が「無音の back」に
+      // ならないようにする (Codex Round 2 指摘 #2)。
+      // listener は既に外しているので history.back() の popstate は silent に処理される。
+      if (trapPushed) {
+        trapPushed = false;
+        window.history.back();
+      }
     };
   }, [sessionId]);
 
