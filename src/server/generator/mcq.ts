@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
@@ -50,7 +51,12 @@ async function fetchPastSummaries(conceptId: string, max = 5): Promise<string[]>
 async function loadConcept(conceptId: string): Promise<Concept> {
   const rows = await getDb().select().from(concepts).where(eq(concepts.id, conceptId)).limit(1);
   const row = rows[0];
-  if (!row) throw new Error(`unknown concept: ${conceptId}`);
+  if (!row) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: `Unknown concept: ${conceptId}`,
+    });
+  }
   return row;
 }
 
@@ -58,9 +64,10 @@ async function loadConcept(conceptId: string): Promise<Concept> {
 function assertDifficultyAllowed(concept: Concept, difficulty: DifficultyLevel): void {
   const allowed = concept.difficultyLevels;
   if (!allowed.includes(difficulty)) {
-    throw new Error(
-      `difficulty ${difficulty} is not allowed for concept ${concept.id} (allowed: ${allowed.join(",")})`,
-    );
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `difficulty "${difficulty}" is not allowed for concept ${concept.id} (allowed: ${allowed.join(", ")})`,
+    });
   }
 }
 

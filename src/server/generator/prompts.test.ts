@@ -7,7 +7,7 @@ describe("buildMcqPrompt", () => {
     expect(MCQ_PROMPT_VERSION).toBe("mcq.v1");
   });
 
-  it("共通 prefix が先頭にあり、variant が後ろに回っている (prompt caching 前提)", () => {
+  it("固定の Output requirements が user の先頭に、可変の Concept/Spec 等が後ろに (prompt caching 前提)", () => {
     const out = buildMcqPrompt({
       concept: {
         id: "network.http.methods_idempotency",
@@ -23,12 +23,17 @@ describe("buildMcqPrompt", () => {
 
     // system は固定、先頭に配置
     expect(out.system.startsWith("You are a senior engineer")).toBe(true);
-    // user は変動する concept セクションが下に来る形
-    expect(out.user.indexOf("## Concept")).toBeLessThan(out.user.indexOf("## Spec"));
-    expect(out.user.indexOf("## Spec")).toBeLessThan(out.user.indexOf("## Style instruction"));
-    expect(out.user.indexOf("## Style instruction")).toBeLessThan(
-      out.user.indexOf("## Avoid duplicates"),
-    );
+    // user は固定 (Output requirements) が先、可変が後
+    const outputIdx = out.user.indexOf("## Output requirements");
+    const conceptIdx = out.user.indexOf("## Concept");
+    const specIdx = out.user.indexOf("## Spec");
+    const styleIdx = out.user.indexOf("## Style instruction");
+    const avoidIdx = out.user.indexOf("## Avoid duplicates");
+    expect(outputIdx).toBeGreaterThanOrEqual(0);
+    expect(outputIdx).toBeLessThan(conceptIdx);
+    expect(conceptIdx).toBeLessThan(specIdx);
+    expect(specIdx).toBeLessThan(styleIdx);
+    expect(styleIdx).toBeLessThan(avoidIdx);
   });
 
   it("snapshot: 代表入力に対する組み立て結果", () => {
@@ -50,7 +55,16 @@ describe("buildMcqPrompt", () => {
       {
         "system": "You are a senior engineer creating a multiple-choice quiz question for a professional software engineer.
       Output strictly as JSON matching the provided schema. Use 日本語 (Japanese) for all human-readable fields.",
-        "user": "## Concept
+        "user": "## Output requirements (固定)
+
+      - \`prompt\` (string): 日本語の問題文
+      - \`answer\` (string): 正解の 1 文 (他の distractors と区別できる決定的な選択肢)
+      - \`distractors\` (string[]): 不正解候補を 3 つ。正解と紛らわしいが明らかに誤り
+      - \`explanation\` (string): なぜ answer が正しく、distractors が誤りかを簡潔に日本語で説明
+      - \`hint\` (string | null): 解答前に 1 回だけ表示できる軽いヒント (Optional)
+      - \`tags\` (string[]): 1〜4 個の短い英語タグ (domain.subdomain を含めない)
+
+      ## Concept (可変)
 
       id: programming.async.event_loop
       name: イベントループ
@@ -58,28 +72,19 @@ describe("buildMcqPrompt", () => {
       domain: programming
       subdomain: async
 
-      ## Spec
+      ## Spec (可変)
 
       difficulty: junior
       thinking_style: why
 
-      ## Style instruction
+      ## Style instruction (可変)
 
       問題は「なぜそうなっているか」「理由を説明せよ」形式。表面的な定義を問わないこと。
 
-      ## Avoid duplicates
+      ## Avoid duplicates (可変)
 
       Past recent framings for this concept (last 30 days, if any):
-      - setTimeout の評価タイミングを問う問題
-
-      ## Output requirements
-
-      - \`prompt\` (string): 日本語の問題文
-      - \`answer\` (string): 正解の 1 文 (他の distractors と区別できる決定的な選択肢)
-      - \`distractors\` (string[]): 不正解候補を 3 つ。正解と紛らわしいが明らかに誤り
-      - \`explanation\` (string): なぜ answer が正しく、distractors が誤りかを簡潔に日本語で説明
-      - \`hint\` (string | null): 解答前に 1 回だけ表示できる軽いヒント (Optional)
-      - \`tags\` (string[]): 1〜4 個の短い英語タグ (domain.subdomain を含めない)",
+      - setTimeout の評価タイミングを問う問題",
       }
     `);
   });
