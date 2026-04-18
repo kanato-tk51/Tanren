@@ -65,7 +65,7 @@ async function main() {
     .sort();
   if (orphans.length > 0) {
     console.warn(
-      `⚠ ${orphans.length} concept(s) in DB but not in concepts.yaml (drift)\n  ${orphans.join("\n  ")}\n  → manually review: restore in YAML, or retire/archive explicitly.`,
+      `⚠ ${orphans.length} concept(s) in DB but not in concepts.yaml (drift)\n  ${orphans.join("\n  ")}\n  → MVP では手動運用 (docs/OPEN_QUESTIONS.md Q11): YAML に復元するか、依存テーブルを確認したうえで手動 DELETE する`,
     );
   }
 }
