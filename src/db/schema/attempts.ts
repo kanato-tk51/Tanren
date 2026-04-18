@@ -10,6 +10,7 @@ import {
   smallint,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 import { concepts } from "./concepts";
@@ -83,6 +84,8 @@ export const attempts = pgTable(
     index("idx_attempts_user_created").on(table.userId, table.createdAt.desc()),
     index("idx_attempts_search").using("gin", table.searchTsv),
     index("idx_attempts_trgm").using("gin", sql`${table.userAnswer} gin_trgm_ops`),
+    // 同一 session × question に対する attempt は 1 件のみ (二重 submit の防御)
+    uniqueIndex("uq_attempts_session_question").on(table.sessionId, table.questionId),
   ],
 );
 

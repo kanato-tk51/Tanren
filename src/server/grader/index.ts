@@ -118,8 +118,32 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
     throw new Error(`grading for type="${question.type}" is not implemented (issue #14+)`);
   }
 
-  const [inserted] = await getDb().insert(attempts).values(row).returning();
-  if (!inserted) throw new Error("failed to insert attempt");
-  grade.attempt.id = inserted.id;
-  return grade;
+  // (session_id, question_id) の unique index で二重 submit を防ぐ。
+  // 並行送信で losing race になった側は onConflictDoNothing で何も insert しない。
+  const inserted = await getDb()
+    .insert(attempts)
+    .values(row)
+    .onConflictDoNothing({ target: [attempts.sessionId, attempts.questionId] })
+    .returning();
+
+  if (inserted[0]) {
+    grade.attempt.id = inserted[0].id;
+    return grade;
+  }
+
+  // 既存の attempt を返す (二重送信クライアントにも同じ結果を返す)
+  const existing = await getDb()
+    .select()
+    .from(attempts)
+    .where(and(eq(attempts.sessionId, input.sessionId), eq(attempts.questionId, input.questionId)))
+    .limit(1);
+  const prev = existing[0];
+  if (!prev) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+  return {
+    attempt: { id: prev.id },
+    correct: prev.correct ?? false,
+    score: prev.score,
+    feedback: prev.feedback ?? "",
+    rubricChecks: (prev.rubricChecks ?? []) as typeof grade.rubricChecks,
+  };
 }

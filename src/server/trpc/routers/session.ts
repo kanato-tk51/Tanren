@@ -102,11 +102,32 @@ export const sessionRouter = router({
       if (session.questionCount >= target) {
         return { done: true as const };
       }
-      // pendingQuestionId がある = 直前の問題を未回答。OpenAI コスト保護のため連発を拒否
+      // pendingQuestionId がある = 直前の問題を未回答
       if (spec.pendingQuestionId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "submit the current pending question before fetching the next one",
+        });
+      }
+
+      // 原子予約: pendingQuestionId が null のときだけ "__reserved__" にスワップ。
+      // 並行 next で losing race になった側は 0 行更新となり早期 return で OpenAI 呼び出しを避ける
+      const RESERVED = "__reserving__";
+      const reserved = await getDb()
+        .update(sessions)
+        .set({ spec: { ...spec, pendingQuestionId: RESERVED } })
+        .where(
+          and(
+            eq(sessions.id, session.id),
+            sql`(${sessions.spec}->>'pendingQuestionId') IS NULL`,
+            isNull(sessions.finishedAt),
+          ),
+        )
+        .returning({ id: sessions.id });
+      if (reserved.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "another request already reserved the next question; retry",
         });
       }
 
