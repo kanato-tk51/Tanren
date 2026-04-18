@@ -546,7 +546,9 @@ Tanren/
 ├── public/                        # 静的ファイル
 │   ├── manifest.webmanifest       # PWA manifest (issue #24)
 │   ├── sw.js                      # PWA Service Worker (自作、Serwist 非採用)
-│   └── icon-*.png                 # PWA アイコン
+│   ├── icon-192.png               # PWA アイコン (standard + maskable)
+│   ├── icon-512.png               # PWA アイコン (standard + maskable)
+│   └── apple-icon.png             # iOS apple-touch-icon (180x180)
 ├── drizzle/                       # マイグレーション
 ├── package.json
 ├── next.config.ts
