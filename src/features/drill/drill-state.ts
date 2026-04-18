@@ -3,8 +3,8 @@ import { create } from "zustand";
 export type DrillQuestion = {
   id: string;
   prompt: string;
-  answer: string;
-  distractors: string[];
+  /** サーバー側でシャッフル済み (answer + distractors が混在、正答位置は UI には渡さない) */
+  options: string[];
   hint: string | null;
   tags: string[];
 };
@@ -14,6 +14,8 @@ export type DrillGrading = {
   correct: boolean;
   score: number | null;
   feedback: string;
+  /** 選択したインデックスが正解だったかを UI ハイライトに使う */
+  correctIndex: number | null;
 };
 
 export type DrillSummary = {
@@ -28,8 +30,6 @@ export type DrillState = {
   phase: Phase;
   sessionId: string | null;
   question: DrillQuestion | null;
-  /** answer + distractors を固定順にシャッフルしたもの (表示用) */
-  options: string[];
   selectedIndex: number | null;
   grading: DrillGrading | null;
   summary: DrillSummary | null;
@@ -44,24 +44,10 @@ type Actions = {
   setSummary: (s: DrillSummary) => void;
 };
 
-function fisherYatesShuffle<T>(array: T[], seed: string): T[] {
-  // 決定的シャッフル (question.id を seed) でリロード時も同じ表示順を保つ
-  const copy = array.slice();
-  let h = 0;
-  for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  for (let i = copy.length - 1; i > 0; i--) {
-    h = (h * 1103515245 + 12345) >>> 0;
-    const j = h % (i + 1);
-    [copy[i]!, copy[j]!] = [copy[j]!, copy[i]!];
-  }
-  return copy;
-}
-
 export const useDrillStore = create<DrillState & Actions>((set) => ({
   phase: "idle",
   sessionId: null,
   question: null,
-  options: [],
   selectedIndex: null,
   grading: null,
   summary: null,
@@ -71,7 +57,6 @@ export const useDrillStore = create<DrillState & Actions>((set) => ({
       phase: "idle",
       sessionId: null,
       question: null,
-      options: [],
       selectedIndex: null,
       grading: null,
       summary: null,
@@ -81,15 +66,8 @@ export const useDrillStore = create<DrillState & Actions>((set) => ({
 
   setQuestion: (q) =>
     set(() => {
-      if (!q) return { question: null, options: [], selectedIndex: null, phase: "asking" };
-      const options = fisherYatesShuffle([q.answer, ...q.distractors], q.id);
-      return {
-        question: q,
-        options,
-        selectedIndex: null,
-        grading: null,
-        phase: "asking",
-      };
+      if (!q) return { question: null, selectedIndex: null, phase: "asking" as const };
+      return { question: q, selectedIndex: null, grading: null, phase: "asking" as const };
     }),
 
   setSelected: (idx) => set({ selectedIndex: idx }),

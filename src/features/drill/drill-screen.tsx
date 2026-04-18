@@ -17,7 +17,7 @@ import { trpc } from "@/lib/trpc/react";
 import { useDrillStore } from "./drill-state";
 
 export function DrillScreen() {
-  const { phase, sessionId, question, options, selectedIndex, grading, summary } = useDrillStore();
+  const { phase, sessionId, question, selectedIndex, grading, summary } = useDrillStore();
   const { reset, setSession, setQuestion, setSelected, setGrading, setSummary } = useDrillStore();
 
   const startMutation = trpc.session.start.useMutation();
@@ -30,6 +30,8 @@ export function DrillScreen() {
     nextMutation.isPending ||
     submitMutation.isPending ||
     finishMutation.isPending;
+
+  const options = question?.options ?? [];
 
   const handleStart = useCallback(async () => {
     const { sessionId } = await startMutation.mutateAsync({ kind: "daily", targetCount: 5 });
@@ -55,7 +57,7 @@ export function DrillScreen() {
 
   const handleSubmit = useCallback(async () => {
     if (!sessionId || !question || selectedIndex === null) return;
-    const answer = options[selectedIndex];
+    const answer = question.options[selectedIndex];
     if (!answer) return;
     const result = await submitMutation.mutateAsync({
       sessionId,
@@ -67,10 +69,11 @@ export function DrillScreen() {
       correct: result.correct,
       score: result.score,
       feedback: result.feedback,
+      // 正答インデックスは採点結果から UI 側で復元する (サーバーは answer を返さない)
+      correctIndex: result.correct ? selectedIndex : null,
     });
-  }, [sessionId, question, selectedIndex, options, submitMutation, setGrading]);
+  }, [sessionId, question, selectedIndex, submitMutation, setGrading]);
 
-  // キーボードショートカット: 1-4 で選択、Enter で送信 / 次へ
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (phase === "asking" && question) {
@@ -146,17 +149,17 @@ export function DrillScreen() {
       <CardContent className="space-y-2">
         {options.map((opt, i) => {
           const isSelected = i === selectedIndex;
-          const isCorrect = phase === "graded" && opt === question.answer;
-          const isWrongSelected = phase === "graded" && isSelected && opt !== question.answer;
+          const isGradedCorrect = phase === "graded" && grading?.correctIndex === i;
+          const isWrongSelected = phase === "graded" && isSelected && grading?.correct === false;
           return (
             <button
-              key={opt}
+              key={`${question.id}-${i}`}
               type="button"
               disabled={phase === "graded"}
               onClick={() => setSelected(i)}
               className={[
                 "flex w-full items-start gap-3 rounded-md border p-3 text-left text-sm transition-colors",
-                isCorrect
+                isGradedCorrect
                   ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
                   : isWrongSelected
                     ? "border-destructive bg-red-50 dark:bg-red-950"
@@ -169,7 +172,7 @@ export function DrillScreen() {
                 {i + 1}
               </span>
               <span className="flex-1 whitespace-pre-wrap">{opt}</span>
-              {isCorrect && <Check className="h-4 w-4 text-emerald-600" />}
+              {isGradedCorrect && <Check className="h-4 w-4 text-emerald-600" />}
               {isWrongSelected && <X className="text-destructive h-4 w-4" />}
             </button>
           );

@@ -1,12 +1,16 @@
 import { describe, it, expect, beforeEach } from "vitest";
 
-import { useDrillStore } from "./drill-state";
+import { useDrillStore, type DrillQuestion } from "./drill-state";
 
-const sampleQuestion = {
+const sampleQuestion: DrillQuestion = {
   id: "q-1",
   prompt: "HTTP の PUT と PATCH の違いは?",
-  answer: "PUT は冪等、PATCH は部分更新",
-  distractors: ["PUT は body 不要", "PATCH はキャッシュされる", "両方とも冪等"],
+  options: [
+    "PUT は body 不要",
+    "PUT は冪等、PATCH は部分更新",
+    "両方とも冪等",
+    "PATCH はキャッシュされる",
+  ],
   hint: null,
   tags: ["rest"],
 };
@@ -16,7 +20,7 @@ describe("useDrillStore", () => {
     useDrillStore.getState().reset();
   });
 
-  it("初期状態は idle / sessionId=null", () => {
+  it("初期状態は idle", () => {
     const s = useDrillStore.getState();
     expect(s.phase).toBe("idle");
     expect(s.sessionId).toBe(null);
@@ -29,28 +33,20 @@ describe("useDrillStore", () => {
     expect(useDrillStore.getState().sessionId).toBe("s-1");
   });
 
-  it("setQuestion で options (answer + distractors 4 件) が設定される", () => {
+  it("setQuestion で options がサーバー由来のまま入る (クライアントで再シャッフルしない)", () => {
     useDrillStore.getState().setSession("s-1");
     useDrillStore.getState().setQuestion(sampleQuestion);
-    const s = useDrillStore.getState();
-    expect(s.options).toHaveLength(4);
-    expect(s.options).toContain(sampleQuestion.answer);
-    sampleQuestion.distractors.forEach((d) => expect(s.options).toContain(d));
-    expect(s.selectedIndex).toBe(null);
+    expect(useDrillStore.getState().question?.options).toEqual(sampleQuestion.options);
   });
 
-  it("同じ question.id なら決定的にシャッフルされる (リロードで順序が変わらない)", () => {
+  it("setSelected で選択インデックス保持", () => {
     useDrillStore.getState().setSession("s-1");
     useDrillStore.getState().setQuestion(sampleQuestion);
-    const first = useDrillStore.getState().options.slice();
-    useDrillStore.getState().reset();
-    useDrillStore.getState().setSession("s-1");
-    useDrillStore.getState().setQuestion(sampleQuestion);
-    const second = useDrillStore.getState().options;
-    expect(second).toEqual(first);
+    useDrillStore.getState().setSelected(2);
+    expect(useDrillStore.getState().selectedIndex).toBe(2);
   });
 
-  it("setGrading で graded に遷移", () => {
+  it("setGrading で graded に遷移、correctIndex を保持", () => {
     useDrillStore.getState().setSession("s-1");
     useDrillStore.getState().setQuestion(sampleQuestion);
     useDrillStore.getState().setGrading({
@@ -58,8 +54,11 @@ describe("useDrillStore", () => {
       correct: true,
       score: 1,
       feedback: "正解です",
+      correctIndex: 1,
     });
-    expect(useDrillStore.getState().phase).toBe("graded");
+    const s = useDrillStore.getState();
+    expect(s.phase).toBe("graded");
+    expect(s.grading?.correctIndex).toBe(1);
   });
 
   it("setSummary で finished に遷移", () => {
