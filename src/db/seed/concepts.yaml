@@ -4,8 +4,9 @@
 #   - 設計 (name / difficulty_levels / tags / prereqs の意図): docs/10-taxonomy-seed.md
 #   - 実行時 (DB に投入される concept): このファイル (src/db/seed/concepts.yaml)
 # 追加・改名は必ず両者を同一 PR で同期する。
-# YAML から concept を消した場合、run.ts が DB 側の orphan を警告するので
-# 手動で retire / restore を判断する。
+# YAML から concept を消した場合、run.ts が DB 側の orphan を警告する。
+# MVP では docs/OPEN_QUESTIONS.md Q11 の方針どおり「YAML に復元するか、依存テーブルを確認したうえで手動 DELETE する」
+# で対応し、自動削除はしない。
 
 concepts:
   # programming (3)

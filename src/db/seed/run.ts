@@ -55,8 +55,9 @@ async function main() {
   console.log(`✓ seeded ${inserted.length} concepts`);
 
   // orphan 検出: DB にあるが YAML 側から消えた concept を警告する。
-  // 自動削除は questions / attempts / mastery への FK があり cascade 削除が重いため、
-  // 人間の判断で (1) YAML を元に戻す (2) 手動で archive / retire するのどちらかに委ねる。
+  // MVP では docs/OPEN_QUESTIONS.md Q11 の方針どおり「warn のみ」に留め、
+  // 自動削除はしない (questions / attempts / mastery への FK があり cascade が重いため)。
+  // 対応は人間の判断で (1) YAML に復元する (2) 依存テーブルを確認したうえで手動 DELETE する。
   const existingIds = await db.select({ id: concepts.id }).from(concepts);
   const seededIds = new Set(knownIds);
   const orphans = existingIds
