@@ -20,10 +20,8 @@ export const concepts = pgTable(
     tags: jsonb("tags")
       .$type<string[]>()
       .default(sql`'[]'::jsonb`),
-    difficultyLevels: jsonb("difficulty_levels")
-      .$type<DifficultyLevel[]>()
-      .notNull()
-      .default(sql`'[]'::jsonb`),
+    // 1 件以上必須 (CHECK 制約) なので default は置かない。省略時は insert エラーにする
+    difficultyLevels: jsonb("difficulty_levels").$type<DifficultyLevel[]>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

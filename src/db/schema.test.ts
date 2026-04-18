@@ -7,6 +7,7 @@ import {
   type DailyStat,
   type Mastery,
   type Misconception,
+  type NewConcept,
   type NewUser,
   type Question,
   type Session,
@@ -39,6 +40,12 @@ describe("db/schema", () => {
     // デフォルト値があるので insert 時に省略可能
     expectTypeOf<NewUser["id"]>().toEqualTypeOf<string | undefined>();
     expectTypeOf<NewUser["createdAt"]>().toEqualTypeOf<Date | undefined>();
+  });
+
+  it("NewConcept.difficultyLevels は default を持たず省略不可 (1 件以上を型でも強制)", () => {
+    expectTypeOf<NewConcept["difficultyLevels"]>().toEqualTypeOf<
+      (typeof DIFFICULTY_LEVELS)[number][]
+    >();
   });
 
   it("concepts は DomainId でドメインを限定", () => {
