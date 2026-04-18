@@ -1,5 +1,7 @@
 import { sql } from "drizzle-orm";
-import { integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+
+import type { DifficultyLevel, DomainId } from "./_constants";
 
 export const users = pgTable("users", {
   id: text("id")
@@ -11,6 +13,14 @@ export const users = pgTable("users", {
   dailyGoal: integer("daily_goal").notNull().default(15),
   /** 'HH:mm' 形式 */
   notificationTime: text("notification_time"),
+  /** 初回オンボーディング (issue #26) 完了時刻。null なら /onboarding にリダイレクト */
+  onboardingCompletedAt: timestamp("onboarding_completed_at", { withTimezone: true }),
+  /** オンボーディングで選んだ興味分野 (Tier 1 6 ドメイン中の subset) */
+  interestDomains: jsonb("interest_domains")
+    .$type<DomainId[]>()
+    .default(sql`'[]'::jsonb`),
+  /** オンボーディングでの自己申告レベル */
+  selfLevel: text("self_level").$type<DifficultyLevel>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

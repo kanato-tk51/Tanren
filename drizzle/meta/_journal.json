@@ -64,6 +64,13 @@
       "when": 1776496000000,
       "tag": "0008_misconceptions_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1776497000000,
+      "tag": "0009_users_onboarding",
+      "breakpoints": true
     }
   ]
 }

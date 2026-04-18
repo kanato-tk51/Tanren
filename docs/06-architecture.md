@@ -523,7 +523,7 @@ Tanren/
 │   ├── server/
 │   │   ├── trpc/                  # tRPC ルータ
 │   │   ├── auth/                  # Passkey (WebAuthn) セッション管理
-│   │   ├── scheduler/             # FSRS ロジック + daily / review 候補選定
+│   │   ├── scheduler/             # FSRS ロジック + daily / review / diagnostic 候補選定
 │   │   ├── generator/             # 問題生成
 │   │   ├── grader/                # 採点 + rebut + 誤概念抽出
 │   │   ├── parser/                # NL パース (Custom Session)
@@ -539,6 +539,7 @@ Tanren/
 │   │   ├── custom/                # Custom Session 入力フロー
 │   │   ├── insights/              # Dashboard / History / Search
 │   │   ├── review/                # Mistake Review 入口
+│   │   ├── onboarding/            # 初回ウェルカム + 興味分野 + 診断テスト (issue #26)
 │   │   └── pwa/                   # Service Worker 登録 (issue #24)
 │   ├── components/
 │   │   ├── ui/                    # shadcn/ui

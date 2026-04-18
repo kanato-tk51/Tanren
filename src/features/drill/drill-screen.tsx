@@ -20,8 +20,10 @@ import { normalizeRubricChecks, useDrillStore } from "./drill-state";
 
 type DrillScreenProps = {
   /** 完了後「ホームに戻る」を押したときの遷移ハンドラ (例: /custom に戻る)。
-   *  未指定ならデフォルトの useDrillStore.reset() が走り、Daily Drill 開始カードに戻る。 */
-  onReset?: () => void;
+   *  未指定ならデフォルトの useDrillStore.reset() が走り、Daily Drill 開始カードに戻る。
+   *  最終 summary を引数で渡す: 親側は reset() で store がクリアされる前にスナップショット
+   *  できる (issue #26 onboarding 結果カード用、Codex Round 1 指摘 #1)。 */
+  onReset?: (finalSummary: import("./drill-state").DrillSummary | null) => void;
   /** idle で出るスタートカードの挙動を差し替える (例: /custom では使わない) */
   skipInitialStartCard?: boolean;
 };
@@ -29,7 +31,9 @@ type DrillScreenProps = {
 export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps = {}) {
   const { phase, sessionId, question, selectedIndex, grading, summary } = useDrillStore();
   const { reset, setSession, setQuestion, setSelected, setGrading, setSummary } = useDrillStore();
-  const handleReset = onReset ?? reset;
+  // 既定 (onReset 未指定) は zustand reset。引数 finalSummary は無視されるが
+  // 関数シグネチャは optional 引数で互換 (custom / review もそのまま動く)。
+  const handleReset = onReset ?? (() => reset());
 
   const startMutation = trpc.session.start.useMutation();
   const nextMutation = trpc.session.next.useMutation();
@@ -252,8 +256,11 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
         <CardFooter>
           <Button
             onClick={() => {
+              // reset() より先に summary をローカル変数に取り出し、handleReset に渡す。
+              // store を先にクリアすると親側 (onboarding 等) で summary を読み損ねるため。
+              const finalSummary = summary;
               reset();
-              handleReset();
+              handleReset(finalSummary);
             }}
             className="min-h-12 px-6"
           >

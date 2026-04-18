@@ -27,8 +27,8 @@ export const NAV_TABS: NavTab[] = [
   },
 ];
 
-/** BottomNav を出さないルート (セッション中の没入画面 + 認証画面) */
-export const NAV_HIDDEN_PREFIXES = ["/drill", "/custom", "/review", "/login"];
+/** BottomNav を出さないルート (セッション中の没入画面 + 認証画面 + オンボーディング) */
+export const NAV_HIDDEN_PREFIXES = ["/drill", "/custom", "/review", "/login", "/onboarding"];
 
 export function isNavHidden(pathname: string): boolean {
   return NAV_HIDDEN_PREFIXES.some(
