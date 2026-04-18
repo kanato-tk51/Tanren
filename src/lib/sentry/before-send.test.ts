@@ -1,24 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { tanrenBeforeSend } from "./before-send";
 
-const ORIGINAL_DSN = process.env.SENTRY_DSN;
-
-beforeEach(() => {
-  process.env.SENTRY_DSN = "https://example@sentry.io/1";
-});
-afterEach(() => {
-  if (ORIGINAL_DSN === undefined) delete process.env.SENTRY_DSN;
-  else process.env.SENTRY_DSN = ORIGINAL_DSN;
-});
+// 注意: DSN 有無のチェックは beforeSend から削除済み (Codex Round 1 指摘 #1)。
+// 未設定時の skip は Sentry.init 側で行われるため、beforeSend 自体は常に sanitize を行う。
 
 describe("tanrenBeforeSend", () => {
-  it("DSN 未設定時は null を返して送信しない", () => {
-    delete process.env.SENTRY_DSN;
-    const out = tanrenBeforeSend({ message: "test" } as never);
-    expect(out).toBeNull();
-  });
-
   it("request.headers.cookie / authorization を削除", () => {
     const event = {
       request: {
