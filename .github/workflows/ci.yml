@@ -31,8 +31,6 @@ jobs:
       - name: Setup pnpm
         if: steps.has_pkg.outputs.present == 'true'
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Setup Node
         if: steps.has_pkg.outputs.present == 'true'
