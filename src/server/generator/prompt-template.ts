@@ -5,14 +5,15 @@ import { join } from "node:path";
  * markdown ベースのプロンプトテンプレ読み込みと変数置換。
  *
  * フォーマット:
- *   ::: system
+ *   <!-- role:system -->
  *   ...
- *   :::
+ *   <!-- /role -->
  *
- *   ::: user
+ *   <!-- role:user -->
  *   ...{{ variable }}...
- *   :::
+ *   <!-- /role -->
  *
+ * prettier が markdown のリストとして扱ってインデントを付けたりしないよう HTML コメント区切り。
  * `buildMcqPrompt` 等のラッパがこの utility を使って markdown を単一のマスタとして扱う。
  */
 export type SplitPrompt = {
@@ -33,7 +34,8 @@ export function loadTemplate(relativePath: string): string {
   return cached;
 }
 
-const SECTION_RE = /:::\s*(system|user)\s*\n([\s\S]*?)\n:::/g;
+// 先頭 `<!--` と終端 `-->` の両側に空白・改行があることを要求 (prose 中のコード引用に引っかからない)
+const SECTION_RE = /^<!--\s+role:(system|user)\s+-->\s*\n([\s\S]*?)\n\s*<!--\s+\/role\s+-->\s*$/gm;
 
 function extractSections(raw: string): SplitPrompt {
   const out: Partial<SplitPrompt> = {};
@@ -44,7 +46,9 @@ function extractSections(raw: string): SplitPrompt {
     }
   }
   if (!out.system || !out.user) {
-    throw new Error("prompt template must contain both ::: system and ::: user sections");
+    throw new Error(
+      "prompt template must contain both <!-- role:system --> and <!-- role:user --> blocks",
+    );
   }
   return out as SplitPrompt;
 }

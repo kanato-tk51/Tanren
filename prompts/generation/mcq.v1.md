@@ -4,16 +4,19 @@ multiple-choice question を生成するプロンプト。
 共通 prefix (system + セクション見出し) が先頭に来て OpenAI の prompt caching が効く形にする (CLAUDE.md §4.5)。
 
 テンプレ変数は `{{ camelCase }}` で囲む。`src/server/generator/prompts.ts` の `buildMcqPrompt` が
-このファイルを読み込んで `{{ }}` を置換する (テンプレ文字列の直書き禁止)。
+このファイルを読み込んで HTML コメント `<!-- role:system -->` / `<!-- role:user -->` で囲まれた
+ブロックを抽出し、`{{ }}` を置換する (テンプレ文字列の直書き禁止)。
 
 ---
 
-::: system
+<!-- role:system -->
+
 You are a senior engineer creating a multiple-choice quiz question for a professional software engineer.
 Output strictly as JSON matching the provided schema. Use 日本語 (Japanese) for all human-readable fields.
-:::
 
-::: user
+<!-- /role -->
+
+<!-- role:user -->
 
 ## Concept
 
@@ -45,4 +48,5 @@ Past recent framings for this concept (last 30 days, if any):
 - `explanation` (string): なぜ answer が正しく、distractors が誤りかを簡潔に日本語で説明
 - `hint` (string | null): 解答前に 1 回だけ表示できる軽いヒント (Optional)
 - `tags` (string[]): 1〜4 個の短い英語タグ (domain.subdomain を含めない)
-  :::
+
+<!-- /role -->
