@@ -1,3 +1,5 @@
+import "server-only";
+
 import { and, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
@@ -24,13 +26,21 @@ export type SearchResult = {
 };
 
 /**
- * 簡易全文検索 (issue #22, docs/05 §5.6)。
- * MVP では ILIKE '%q%' を attempts / questions / misconceptions に投げ、concept で集約する。
- * pg_trgm / tsvector 本格チューニングは Phase 5+ (issue #30)。
+ * 全文検索 (issue #22, docs/05 §5.6 → issue #30 で本格チューニング済み)。
  *
- * SQL injection 対策: drizzle の ilike() / eq() は prepared statement で bind されるため、
- * 外部文字列 (q) はプレースホルダ経由で安全。`%` `_` などの LIKE ワイルドカード文字は
- * エスケープしない (ユーザーの意図した部分一致を優先)。
+ * 検索戦略:
+ *   1. 英数トークン (ASCII 1 語以上) を含むクエリは `search_tsv @@ plainto_tsquery('simple', q)`
+ *      で GIN 索引を使った定数時間検索 (attempts / questions / misconceptions すべてに tsvector + GIN)。
+ *   2. 日本語 / CJK は to_tsvector('simple') で空 tsv になるため、pg_trgm GIN 索引で
+ *      加速された ILIKE '%q%' を併用 (idx_attempts_trgm / idx_attempts_feedback_trgm /
+ *      idx_questions_prompt_trgm / idx_misconceptions_description_trgm)。
+ *   3. 両経路を `OR` で結合 (重複 hit は attemptId で de-dup していないが、同じ行の
+ *      hitSource は Postgres のプラン次第で変わらないので現状は問題にならない)。
+ *
+ * SQL injection 対策: drizzle の ilike() / eq() / sql`` placeholder は prepared statement
+ * で bind されるため、外部文字列 (q) はプレースホルダ経由で安全。
+ * LIKE ワイルドカード文字 (% _ \\) は escape して「意図通りの部分一致」に揃える
+ * (SQL 側 ILIKE と JS 判定 containsIgnoreCase の挙動一致、Round 2 指摘 #1 解消)。
  */
 export async function fetchSearch(params: {
   userId: string;
@@ -40,12 +50,13 @@ export async function fetchSearch(params: {
   const q = params.q.trim();
   if (q.length === 0) return { hits: [], domainHits: [] };
   const limit = Math.min(Math.max(params.limit ?? 50, 1), 200);
-  // LIKE ワイルドカード文字 (% _ \\) を escape して「ユーザーの意図通りの部分一致」に揃える。
-  // hitSource 判定 (containsIgnoreCase) は literal includes なので、この escape により
-  // SQL 側 ILIKE と JS 判定の挙動が一致する (Round 2 指摘 #1 解消)。
   const escaped = q.replace(/[\\%_]/g, (c) => `\\${c}`);
   const pattern = `%${escaped}%`;
   const db = getDb();
+  // 英数字が含まれていれば tsvector 経路を有効化。日本語のみのクエリは plainto_tsquery が
+  // 空 tsquery を返して no-op になるだけなので、副作用はないが念のため事前判定して
+  // 無駄な OR 条件を query plan から外す。
+  const hasAsciiToken = /[A-Za-z0-9]/.test(q);
 
   // attempts と misconceptions の両方から最大 limit 件ずつ引き、マージ後にもう一度 limit で
   // トリムする。片側 DB クエリに半分ずつ割り付けると「一方がほぼ空のときにもう一方を
@@ -74,6 +85,13 @@ export async function fetchSearch(params: {
           ilike(attempts.userAnswer, pattern),
           ilike(attempts.feedback, pattern),
           ilike(questions.prompt, pattern),
+          // tsvector 経路 (英数トークン含むクエリのみ)。CJK-only は ILIKE 経路で解決。
+          ...(hasAsciiToken
+            ? [
+                sql`${attempts.searchTsv} @@ plainto_tsquery('simple', ${q})`,
+                sql`${questions.searchTsv} @@ plainto_tsquery('simple', ${q})`,
+              ]
+            : []),
         ) as SQL,
       ),
     )
@@ -94,7 +112,15 @@ export async function fetchSearch(params: {
     .from(misconceptions)
     .innerJoin(concepts, eq(misconceptions.conceptId, concepts.id))
     .where(
-      and(eq(misconceptions.userId, params.userId), ilike(misconceptions.description, pattern)),
+      and(
+        eq(misconceptions.userId, params.userId),
+        or(
+          ilike(misconceptions.description, pattern),
+          ...(hasAsciiToken
+            ? [sql`${misconceptions.searchTsv} @@ plainto_tsquery('simple', ${q})`]
+            : []),
+        ) as SQL,
+      ),
     )
     .orderBy(desc(misconceptions.lastSeen))
     .limit(limit);
