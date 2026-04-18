@@ -15,6 +15,7 @@ import {
 } from "@/db/schema";
 import { updateMasteryAfterAttempt } from "@/server/scheduler/update-mastery";
 
+import { gradeExactMatch } from "./exact-match";
 import { extractAndPersistMisconception } from "./extract-misconception";
 import { gradeMcq } from "./mcq";
 import { gradeShort } from "./short";
@@ -140,6 +141,34 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
       questionType: question.type,
       correctAnswer: question.answer,
     };
+  } else if (question.type === "cloze" || question.type === "code_read") {
+    // cloze (穴埋め) / code_read (出力予測) は LLM なしの完全一致採点 (issue #31)。
+    // NFKC + 空白正規化 + 末尾改行除去で表記ゆれを吸収する。
+    const result = gradeExactMatch(question, input.userAnswer);
+    row = {
+      userId: input.userId,
+      sessionId: input.sessionId,
+      questionId: question.id,
+      conceptId: question.conceptId,
+      userAnswer: input.userAnswer,
+      correct: result.correct,
+      score: result.score,
+      feedback: result.feedback,
+      rubricChecks: [],
+      reasonGiven: input.reasonGiven,
+      elapsedMs: input.elapsedMs,
+      gradedBy: null,
+      promptVersion: null,
+    };
+    grade = {
+      attempt: { id: "" },
+      correct: result.correct,
+      score: result.score,
+      feedback: result.feedback,
+      rubricChecks: [],
+      questionType: question.type,
+      correctAnswer: question.answer,
+    };
   } else if (question.type === "short" || question.type === "written") {
     const result =
       question.type === "short"
@@ -222,7 +251,6 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
             reasonGiven: reason,
           });
         } catch (err) {
-           
           console.error("extractAndPersistMisconception failed", err);
         }
       });
@@ -237,7 +265,6 @@ export async function gradeAttempt(input: GradeAttemptInput): Promise<GradeAttem
         try {
           await maybeResolveMisconceptions({ userId, conceptId });
         } catch (err) {
-           
           console.error("maybeResolveMisconceptions failed", err);
         }
       });
