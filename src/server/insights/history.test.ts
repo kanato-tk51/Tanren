@@ -91,6 +91,35 @@ describe("fetchHistory", () => {
     expect(out2.items).toHaveLength(1);
   });
 
+  it("同一 createdAt が limit 境界をまたいでも取りこぼさない (Round 2 指摘)", async () => {
+    // 3 件が同時刻 + 1 件が古い時刻。limit=2 で 1 ページ目 2 件、2 ページ目 2 件。
+    const sameTime = new Date("2026-04-18T10:00:00Z");
+    const older = new Date("2026-04-18T09:00:00Z");
+    // 1 ページ目: (sameTime, a-3) / (sameTime, a-2) の 2 件 + 余剰 1 件 (sameTime, a-1)
+    // limit=2 の場合 select は limit+1=3 件を返す
+    queue.push(() => [
+      mkRow({ attemptId: "a-3", createdAt: sameTime }),
+      mkRow({ attemptId: "a-2", createdAt: sameTime }),
+      mkRow({ attemptId: "a-1", createdAt: sameTime }),
+    ]);
+    const p1 = await fetchHistory({ userId: "u-1", filter: { limit: 2 } });
+    expect(p1.items.map((i) => i.attemptId)).toEqual(["a-3", "a-2"]);
+    expect(p1.nextCursor).toBe(`${sameTime.toISOString()}|a-2`);
+
+    // 2 ページ目: cursor=(sameTime, a-2) 以降。a-1 が同秒残存、後は older の a-0
+    queue.push(() => [
+      mkRow({ attemptId: "a-1", createdAt: sameTime }),
+      mkRow({ attemptId: "a-0", createdAt: older }),
+    ]);
+    const p2 = await fetchHistory({
+      userId: "u-1",
+      filter: { limit: 2, cursor: p1.nextCursor! },
+    });
+    // limit=2 で 2 件返るがそれが全件なので nextCursor=null
+    expect(p2.items.map((i) => i.attemptId)).toEqual(["a-1", "a-0"]);
+    expect(p2.nextCursor).toBeNull();
+  });
+
   it("limit に満たなければ nextCursor=null", async () => {
     queue.push(() => [mkRow()]);
     const out = await fetchHistory({ userId: "u-1", filter: { limit: 20 } });

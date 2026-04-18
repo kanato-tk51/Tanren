@@ -9,6 +9,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DOMAIN_IDS, type DomainId } from "@/db/schema/_constants";
+import { buildCopyForLlm } from "@/lib/share/copy-for-llm";
 import { trpc } from "@/lib/trpc/react";
 
 import type { AppRouter } from "@/server/trpc/routers";
@@ -144,22 +145,35 @@ function HistoryRow({ item }: { item: HistoryItem }) {
   const created = new Date(item.createdAt);
   const customHref = `/custom?conceptId=${encodeURIComponent(item.conceptId)}`;
 
+  // drill 画面と同じ buildCopyForLlm を再利用して整形 (Codex Round 2 指摘: copy 重複)
   async function copy() {
-    const text = [
-      `# 問題`,
-      item.questionPrompt,
-      "",
-      `# 模範解答`,
-      item.questionAnswer,
-      "",
-      `# あなたの回答`,
-      item.userAnswer ?? "(未回答)",
-      "",
-      `# 採点: ${correctLabel}${item.score !== null ? ` / ${item.score.toFixed(2)}` : ""}`,
-      item.feedback ?? "",
-    ].join("\n");
+    const text = buildCopyForLlm({
+      question: {
+        prompt: item.questionPrompt,
+        answer: item.questionAnswer,
+        tags: [],
+        hint: null,
+        meta: {
+          domain: item.domainId,
+          subdomain: item.subdomainId,
+          conceptId: item.conceptId,
+          conceptName: item.conceptName,
+          difficulty: item.difficulty,
+        },
+      },
+      userAnswer: item.userAnswer ?? "",
+      grading: {
+        correct: item.correct,
+        score: item.score,
+        feedback: item.feedback,
+      },
+    });
     try {
-      await navigator.clipboard.writeText(text);
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else if (typeof navigator !== "undefined" && navigator.share) {
+        await navigator.share({ text });
+      }
     } catch {
       // コピー失敗は無通知で
     }
