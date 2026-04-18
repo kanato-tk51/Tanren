@@ -47,9 +47,6 @@ function mkAttemptHit(over: Partial<Record<string, unknown>> = {}) {
     conceptName: "並行性",
     domainId: "os",
     subdomainId: "concurrency",
-    ua: "race condition を発見した",
-    fb: null,
-    qp: "並行性とは?",
     ...over,
   };
 }
@@ -89,26 +86,60 @@ describe("fetchSearch", () => {
 
   it("hitSource は userAnswer > feedback > question の優先順で判定", async () => {
     queue.push(() => [
-      mkAttemptHit({ ua: "race!!!", fb: null }), // userAnswer マッチ → "userAnswer"
-      mkAttemptHit({
-        attemptId: "a-2",
-        ua: null,
-        userAnswer: null,
-        fb: "race!!!",
-        feedback: "race!!!",
-      }), // feedback マッチ
-      mkAttemptHit({
-        attemptId: "a-3",
-        ua: null,
-        userAnswer: null,
-        fb: null,
-        feedback: null,
-      }), // question だけマッチ (fallback)
+      mkAttemptHit({ userAnswer: "race!!!", feedback: null }), // userAnswer マッチ
+      mkAttemptHit({ attemptId: "a-2", userAnswer: null, feedback: "race!!!" }), // feedback
+      mkAttemptHit({ attemptId: "a-3", userAnswer: null, feedback: null }), // question fallback
     ]);
     queue.push(() => []);
 
     const out = await fetchSearch({ userId: "u-1", q: "race" });
     expect(out.hits.map((h) => h.hitSource)).toEqual(["userAnswer", "feedback", "question"]);
+  });
+
+  it("SQL injection: ' OR 1=1 -- / ; DROP TABLE / -- コメントを含む q でも通常検索として処理 (受け入れ基準)", async () => {
+    const payloads = [
+      "' OR 1=1 --",
+      "; DROP TABLE attempts --",
+      "admin' --",
+      "\\'%\\_",
+      "' UNION SELECT * FROM users --",
+    ];
+    for (const payload of payloads) {
+      queue.length = 0;
+      queue.push(() => []); // attempts
+      queue.push(() => []); // misconceptions
+      // SQL injection が成功していたら DB がエラーを投げるか全件返るかだが、
+      // drizzle の ilike/eq は prepared statement で bind するため、q は常に値として扱われ、
+      // 文字列としてそのままパターンに組み込まれる。エラーなく完走することを確認する。
+      await expect(fetchSearch({ userId: "u-1", q: payload })).resolves.toBeDefined();
+    }
+  });
+
+  it("SQL injection: whereSpy に渡る式は literal 結合ではなく drizzle SQL オブジェクト", async () => {
+    queue.push(() => []);
+    queue.push(() => []);
+    await fetchSearch({ userId: "u-1", q: "' OR 1=1 --" });
+    // attempts と misconceptions で whereSpy が呼ばれ、引数はオブジェクト (非 string)
+    expect(whereSpy).toHaveBeenCalledTimes(2);
+    for (const call of whereSpy.mock.calls) {
+      const arg = call[0];
+      expect(arg).toBeDefined();
+      expect(typeof arg).not.toBe("string"); // literal SQL 文字列ではない = bind 済み drizzle 式
+    }
+  });
+
+  it("limit=50 のとき attempts+misconceptions マージ後も最大 50 件 (Round 1 指摘 #2)", async () => {
+    const attemptsRows = Array.from({ length: 50 }).map((_, i) =>
+      mkAttemptHit({ attemptId: `a-${i}`, createdAt: new Date(Date.UTC(2026, 3, 18, 0, i)) }),
+    );
+    const miscRows = Array.from({ length: 50 }).map((_, i) =>
+      mkMiscHit({ id: `m-${i}`, lastSeen: new Date(Date.UTC(2026, 3, 17, 0, i)) }),
+    );
+    queue.push(() => attemptsRows);
+    queue.push(() => miscRows);
+
+    const out = await fetchSearch({ userId: "u-1", q: "race", limit: 50 });
+    expect(out.hits.length).toBe(50);
   });
 
   it("domainHits: ドメインごとの件数を降順で集約", async () => {

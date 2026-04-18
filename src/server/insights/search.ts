@@ -43,7 +43,9 @@ export async function fetchSearch(params: {
   const pattern = `%${q}%`;
   const db = getDb();
 
-  // attempts.user_answer / attempts.feedback に部分一致したもの
+  // attempts と misconceptions の両方から最大 limit 件ずつ引き、マージ後にもう一度 limit で
+  // トリムする。片側 DB クエリに半分ずつ割り付けると「一方がほぼ空のときにもう一方を
+  // 活かしきれない」ため、取得段階では各 limit、最終段階で合算 limit。
   const attemptHits = await db
     .select({
       attemptId: attempts.id,
@@ -57,9 +59,6 @@ export async function fetchSearch(params: {
       conceptName: concepts.name,
       domainId: concepts.domainId,
       subdomainId: concepts.subdomainId,
-      ua: attempts.userAnswer,
-      fb: attempts.feedback,
-      qp: questions.prompt,
     })
     .from(attempts)
     .innerJoin(questions, eq(attempts.questionId, questions.id))
@@ -96,16 +95,16 @@ export async function fetchSearch(params: {
     .orderBy(desc(misconceptions.lastSeen))
     .limit(limit);
 
-  const hits: SearchResult["hits"] = [];
+  const merged: SearchResult["hits"] = [];
   for (const r of attemptHits) {
-    const matchedInUserAnswer = r.ua !== null && containsIgnoreCase(r.ua, q);
-    const matchedInFeedback = r.fb !== null && containsIgnoreCase(r.fb, q);
+    const matchedInUserAnswer = r.userAnswer !== null && containsIgnoreCase(r.userAnswer, q);
+    const matchedInFeedback = r.feedback !== null && containsIgnoreCase(r.feedback, q);
     const hitSource: SearchResult["hits"][number]["hitSource"] = matchedInUserAnswer
       ? "userAnswer"
       : matchedInFeedback
         ? "feedback"
         : "question";
-    hits.push({
+    merged.push({
       attemptId: r.attemptId,
       createdAt: r.createdAt,
       questionPrompt: r.questionPrompt,
@@ -122,7 +121,7 @@ export async function fetchSearch(params: {
   }
   for (const m of miscHits) {
     // misconception 由来の hit は attempt id を持たないため、疑似 id を "misc-{id}" で返す。
-    hits.push({
+    merged.push({
       attemptId: `misc-${m.id}`,
       createdAt: m.lastSeen,
       questionPrompt: m.description,
@@ -137,9 +136,12 @@ export async function fetchSearch(params: {
       hitSource: "misconception",
     });
   }
-  hits.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-  // ドメインごとの hit 集計
+  // 両側サブクエリに limit ずつ割り当てたので、マージ後に合算 limit で再トリム (Round 1 指摘 #2)。
+  const hits = merged.slice(0, limit);
+
+  // ドメインごとの hit 集計はトリム後の hits から計算 (UI 表示件数と一致させる)
   const byDomain = new Map<string, number>();
   for (const h of hits) {
     byDomain.set(h.domainId, (byDomain.get(h.domainId) ?? 0) + 1);

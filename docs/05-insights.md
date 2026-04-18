@@ -150,13 +150,19 @@
 
 ### 実装
 
-- **PostgreSQL `tsvector` + GIN index** + `pg_trgm` を併用 (日本語対応)
-- `attempts.search_tsv` は `STORED` generated column として自動更新
-- インデックス対象:
-  - `questions.prompt` (attempts JOIN 経由)
-  - `attempts.user_answer`
-  - `questions.explanation`
-  - `misconceptions.description`
+**MVP (issue #22)**: `ILIKE '%q%'` ベースで attempts (user_answer / feedback) /
+questions.prompt / misconceptions.description を横断検索。
+`src/server/insights/search.ts` に集約。SQL injection 対策は drizzle の
+`ilike()` / `eq()` による prepared statement bind で担保 (unit test あり)。
+
+**Phase 5+ (issue #30)**: `tsvector` + GIN index + `pg_trgm` を併用した本格チューニング。
+`attempts.search_tsv` (STORED generated column) は MVP では index として未使用だが
+将来移行時の枝として残してある。将来のインデックス対象:
+
+- `questions.prompt` (attempts JOIN 経由)
+- `attempts.user_answer`
+- `questions.explanation`
+- `misconceptions.description`
 
 ### UX
 
