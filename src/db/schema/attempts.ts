@@ -65,6 +65,9 @@ export const attempts = pgTable(
     misconceptionTags: jsonb("misconception_tags").$type<MisconceptionTag[]>(),
     reasonGiven: text("reason_given"),
     copiedForExternal: integer("copied_for_external").notNull().default(0),
+    /** 採点に使ったプロンプトの版 (CLAUDE.md §4.5)。mcq のようにプロンプト不使用の採点は null */
+    promptVersion: text("prompt_version"),
+    gradedBy: text("graded_by"),
     /**
      * 全文検索用 tsvector (ADR-0003 / §6.2.2)。
      * user_answer / reason_given / feedback の連結を 'simple' analyzer で index 化する。
