@@ -6,7 +6,7 @@ import { tanrenBeforeSend } from "./before-send";
 // 未設定時の skip は Sentry.init 側で行われるため、beforeSend 自体は常に sanitize を行う。
 
 describe("tanrenBeforeSend", () => {
-  it("request.headers.cookie / authorization を削除", () => {
+  it("機密ヘッダ (cookie / authorization / x-api-key / x-auth-token / x-csrf-token / proxy-authorization / set-cookie) を case-insensitive に削除", () => {
     const event = {
       request: {
         headers: {
@@ -14,6 +14,11 @@ describe("tanrenBeforeSend", () => {
           Cookie: "y",
           authorization: "z",
           Authorization: "w",
+          "Proxy-Authorization": "p",
+          "X-API-Key": "k",
+          "x-auth-token": "t",
+          "X-Csrf-Token": "c",
+          "set-cookie": "s",
           "user-agent": "ua",
         },
       },
@@ -47,6 +52,36 @@ describe("tanrenBeforeSend", () => {
     const event = { user: { email: "x@y.z" } } as never;
     const out = tanrenBeforeSend(event);
     expect(out?.user).toBeUndefined();
+  });
+
+  it("request.url の query string と fragment を削除", () => {
+    const event = {
+      request: {
+        url: "https://example.com/drill?token=abc&sid=xyz#section",
+      },
+    } as never;
+    const out = tanrenBeforeSend(event);
+    expect(out?.request?.url).toBe("https://example.com/drill");
+  });
+
+  it("breadcrumbs の fetch / xhr / navigation の url / to / from から query を落とす", () => {
+    const event = {
+      breadcrumbs: [
+        { category: "fetch", data: { url: "https://api.example.com/x?auth=t" } },
+        {
+          category: "navigation",
+          data: {
+            from: "/a?x=1",
+            to: "/b?y=2#frag",
+          },
+        },
+        { category: "console", message: "hi" }, // data 無しでも crash しない
+      ],
+    } as never;
+    const out = tanrenBeforeSend(event);
+    expect(out?.breadcrumbs?.[0]?.data).toEqual({ url: "https://api.example.com/x" });
+    expect(out?.breadcrumbs?.[1]?.data).toEqual({ from: "/a", to: "/b" });
+    expect(out?.breadcrumbs?.[2]).toEqual({ category: "console", message: "hi" });
   });
 
   it("contexts.device / os を削除", () => {
