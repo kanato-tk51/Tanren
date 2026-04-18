@@ -205,12 +205,19 @@ export const sessionRouter = router({
 
       // Mistake Review (issue #23): 直近 14 日の誤答 concept を先に選定してキュー化。
       // 該当 concept が 0 件なら PRECONDITION_FAILED で返し、セッションは作らない。
+      // targetCount は 10..15 に強制 clamp (受け入れ基準「10-15 問」)。candidates が
+      // 10 件未満でも session.next のラウンドロビンで同 concept を複数回出題して埋める
+      // (同じ concept の別タイプ/スタイルで出題してもよいという受け入れ基準に合致)。
       let reviewConceptIds: string[] | undefined;
+      let reviewTargetCount: number | undefined;
       if (input.kind === "review") {
-        const desiredCount = Math.min(input.targetCount ?? REVIEW_DEFAULT_COUNT, REVIEW_MAX_COUNT);
+        const clamped = Math.min(
+          Math.max(input.targetCount ?? REVIEW_DEFAULT_COUNT, REVIEW_DEFAULT_COUNT),
+          REVIEW_MAX_COUNT,
+        );
         const candidates = await selectReviewCandidates({
           userId: ctx.user.id,
-          count: desiredCount,
+          count: REVIEW_MAX_COUNT,
           days: REVIEW_DEFAULT_DAYS,
         });
         if (candidates.length === 0) {
@@ -220,16 +227,17 @@ export const sessionRouter = router({
           });
         }
         reviewConceptIds = candidates.map((c) => c.concept.id);
+        reviewTargetCount = clamped;
       }
 
       // 問題数の決定順位:
       //   1. Custom Session の questionCount
-      //   2. Review の場合は candidates 件数 (1..REVIEW_MAX_COUNT)
+      //   2. Review の場合は reviewTargetCount (10..15 clamp)
       //   3. input.targetCount
       //   4. 既定 5
       const targetCount =
         input.customSpec?.questionCount ??
-        reviewConceptIds?.length ??
+        reviewTargetCount ??
         input.targetCount ??
         DEFAULT_DRILL_LENGTH;
       const spec: SessionSpec = {

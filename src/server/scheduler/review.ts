@@ -1,4 +1,4 @@
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import { attempts, concepts, type Concept } from "@/db/schema";
@@ -33,11 +33,13 @@ export async function selectReviewCandidates(params: {
 
   const db = getDb();
 
-  // 直近の誤答を時刻降順で十分な余裕 (count * 4) 件取得し、concept 別に最新 1 件ずつに dedupe
-  const wrongRows = await db
+  // concept 別に最新の誤答を集約。DISTINCT ON を使わず GROUP BY で全ユニーク concept を取得し、
+  // 誤答時刻の最新降順で count 件に絞る。`count * 4` ヒューリスティックで取りこぼす問題を解消
+  // (Round 1 指摘 #2)。
+  const groupedRows = await db
     .select({
       conceptId: attempts.conceptId,
-      createdAt: attempts.createdAt,
+      latest: sql<Date>`max(${attempts.createdAt})`.as("latest"),
     })
     .from(attempts)
     .where(
@@ -47,28 +49,24 @@ export async function selectReviewCandidates(params: {
         gte(attempts.createdAt, since),
       ),
     )
-    .orderBy(desc(attempts.createdAt))
-    .limit(count * 4);
+    .groupBy(attempts.conceptId)
+    .orderBy(desc(sql`max(${attempts.createdAt})`))
+    .limit(count);
 
-  const latestByConcept = new Map<string, Date>();
-  for (const r of wrongRows) {
-    if (!latestByConcept.has(r.conceptId)) {
-      latestByConcept.set(r.conceptId, r.createdAt);
-    }
-  }
-
-  const conceptIds = Array.from(latestByConcept.keys()).slice(0, count);
-  if (conceptIds.length === 0) return [];
+  if (groupedRows.length === 0) return [];
 
   // concept 情報を一括ロード (Map で O(1) lookup)
   const conceptRows = await db.select().from(concepts);
   const conceptById = new Map(conceptRows.map((c) => [c.id, c]));
 
   const out: ReviewCandidate[] = [];
-  for (const id of conceptIds) {
-    const c = conceptById.get(id);
-    const latest = latestByConcept.get(id);
-    if (c && latest) out.push({ concept: c, latestWrongAt: latest });
+  for (const r of groupedRows) {
+    const c = conceptById.get(r.conceptId);
+    if (c) {
+      // driver によっては max(timestamp) が string で返るため Date() で正規化
+      const latestWrongAt = r.latest instanceof Date ? r.latest : new Date(r.latest);
+      out.push({ concept: c, latestWrongAt });
+    }
   }
   return out;
 }
