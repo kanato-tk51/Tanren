@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
 import type { AppRouter } from "@/server/trpc/routers";
-import type { MasteryTier } from "@/server/insights/mastery-map";
+import { toMasteryTier, type MasteryTier } from "@/server/insights/mastery-map";
 import { trpc } from "@/lib/trpc/react";
 
 type MasteryMap = inferRouterOutputs<AppRouter>["insights"]["masteryMap"];
@@ -29,16 +29,13 @@ const TIER_COLOR: Record<MasteryTier, string> = {
   mastered: "#22c55e", // green-500
 };
 
-/** domain / subdomain など attempt>0 なしで ring に色をつけるために、
- *  平均 masteryPct と「観測 concept が 1 つでもあるか」で tier を近似する */
-function tierFromAggregate(args: { masteryPct: number; attemptCount: number }): MasteryTier {
-  if (args.attemptCount <= 0) return "untouched";
-  if (args.masteryPct < 0.4) return "weak";
-  if (args.masteryPct < 0.8) return "mid";
-  return "mastered";
-}
+/** SVG path: 円環 (ドーナツ) の弧セグメントを 1 つ描く。
+ *  span がほぼ 2π (= 1 兄弟しか居ない場合) のとき、start/end 点が同一になり
+ *  SVG 仕様で「endpoint 同一の A は省略」になって描画されないため、π ずつ
+ *  2 本に分割する (Codex Round 1 指摘 #2)。
+ */
+const FULL_CIRCLE_EPS = 1e-9;
 
-/** SVG path: 円環 (ドーナツ) の弧セグメントを 1 つ描く */
 function arcPath(opts: {
   startAngle: number; // rad, 12 時方向 = -π/2
   endAngle: number;
@@ -46,6 +43,15 @@ function arcPath(opts: {
   outerR: number;
 }): string {
   const { startAngle, endAngle, innerR, outerR } = opts;
+  const span = endAngle - startAngle;
+  if (span >= 2 * Math.PI - FULL_CIRCLE_EPS) {
+    const mid = startAngle + Math.PI;
+    return (
+      arcPath({ startAngle, endAngle: mid, innerR, outerR }) +
+      " " +
+      arcPath({ startAngle: mid, endAngle, innerR, outerR })
+    );
+  }
   const x1 = CENTER + outerR * Math.cos(startAngle);
   const y1 = CENTER + outerR * Math.sin(startAngle);
   const x2 = CENTER + outerR * Math.cos(endAngle);
@@ -54,7 +60,7 @@ function arcPath(opts: {
   const y3 = CENTER + innerR * Math.sin(endAngle);
   const x4 = CENTER + innerR * Math.cos(startAngle);
   const y4 = CENTER + innerR * Math.sin(startAngle);
-  const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
+  const largeArc = span > Math.PI ? 1 : 0;
   return [
     `M ${x1} ${y1}`,
     `A ${outerR} ${outerR} 0 ${largeArc} 1 ${x2} ${y2}`,
@@ -117,7 +123,7 @@ function buildArcs(data: MasteryMap): Arc[] {
         innerR: RING_WIDTHS.domain.inner,
         outerR: RING_WIDTHS.domain.outer,
       }),
-      tier: tierFromAggregate({ masteryPct: d.masteryPct, attemptCount: d.attemptCount }),
+      tier: toMasteryTier({ masteryPct: d.masteryPct, attemptCount: d.attemptCount }),
       tooltip: `${d.domainId} (${Math.round(d.masteryPct * 100)}%, ${d.attemptCount} 問)`,
     });
 
@@ -136,7 +142,7 @@ function buildArcs(data: MasteryMap): Arc[] {
           innerR: RING_WIDTHS.subdomain.inner,
           outerR: RING_WIDTHS.subdomain.outer,
         }),
-        tier: tierFromAggregate({ masteryPct: s.masteryPct, attemptCount: s.attemptCount }),
+        tier: toMasteryTier({ masteryPct: s.masteryPct, attemptCount: s.attemptCount }),
         tooltip: `${d.domainId} / ${s.subdomainId} (${Math.round(s.masteryPct * 100)}%, ${s.attemptCount} 問)`,
       });
 
