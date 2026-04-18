@@ -81,18 +81,16 @@ type CustomSessionSpec = {
   update_mastery: boolean;        // この回の成績を mastery に反映するか
 };
 
+// MVP の実装型 (src/db/schema/_constants.ts THINKING_STYLES と同期)。
+// 当初 docs で挙げていた memorization / design / code_reading などの細粒度は
+// Phase 5+ 以降で追加検討。MVP は 6 スタイルに圧縮している。
 type ThinkingStyle =
-  | 'memorization'
-  | 'why'
-  | 'comparison'
-  | 'trade_off'
-  | 'debugging'
-  | 'design'
-  | 'edge_case'
-  | 'code_reading'
-  | 'applied_scenario'
-  | 'historical'
-  | 'computation';
+  | 'why'           // なぜそうなっているか
+  | 'how'           // どう動くか / 手順
+  | 'trade_off'     // 選択肢の比較検討
+  | 'edge_case'     // 例外 / 罠 / 境界
+  | 'compare'       // 2 者の違いを説明
+  | 'apply';        // 実務適用 / シナリオ
 
 type DifficultySpec =
   | { kind: 'absolute'; level: 'beginner' | 'junior' | 'mid' | 'senior' | 'staff' | 'principal' }
@@ -126,16 +124,17 @@ Convert the user's natural-language request into a CustomSessionSpec JSON.
  devops, tools, low_level, ai_ml, frontend]
 
 ## Available thinking styles
-[memorization, why, comparison, trade_off, debugging, design, edge_case,
- code_reading, applied_scenario, historical, computation]
+[why, how, trade_off, edge_case, compare, apply]
 
 ## Rules
 - If a field is not mentioned, omit it (don't invent).
 - Map vague Japanese:
-    「深く考える」 → trade_off | edge_case | why
-    「基礎」       → junior + memorization
-    「面接レベル」 → senior + mixed styles
-    「実務的」     → applied_scenario
+    「深く考える」 → thinkingStyles: ["why", "trade_off"]
+    「基礎」       → difficulty.level: junior (thinkingStyles は空)
+    「面接レベル」 → senior + thinkingStyles: ["trade_off", "edge_case"]
+    「実務的」     → thinkingStyles: ["apply"]
+    「違いを比べて」 → thinkingStyles: ["compare"]
+    「エッジケース」「罠」 → thinkingStyles: ["edge_case"]
 
 ## Output
 Strict JSON matching CustomSessionSpec schema.
@@ -192,6 +191,7 @@ Senior level means:
 ### 4.6.2. 相対難易度 (+1, -1 など)
 
 ユーザーの mastery から「今の到達レベル」を推定し、そこから相対で指定:
+
 - 該当 concept の現在到達レベルが `junior` のとき
 - `+1` 指定 → `mid`
 - `+2` 指定 → `senior`
@@ -269,18 +269,21 @@ CREATE TABLE session_templates (
 ### 4.9.1. デフォルト: mastery に反映
 
 `update_mastery: true` の場合:
+
 - Custom Session の結果も FSRS に投入
 - Mastery が更新される
 
 ### 4.9.2. オプション: 成績を記録しない
 
 `update_mastery: false` の場合:
+
 - 「お試しモード」として気楽に難問を試せる
 - 履歴には残るが FSRS には影響しない
 
 ### 4.9.3. 未登録 concept の扱い
 
 Custom で「存在しない concept (例: `network.tcp.bbrv2`)」が出たら:
+
 1. **動的に concept ノードを追加** → mastery tracking 対象にするか確認
 2. ユーザー承認後、知識ツリーに組み込む
 

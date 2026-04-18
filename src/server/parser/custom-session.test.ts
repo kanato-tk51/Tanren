@@ -80,7 +80,7 @@ describe("parseCustomSession (LLM DI)", () => {
       updateMastery: true,
     });
     const { spec } = await parseCustomSession("面接レベル 5 問", caller);
-    expect(spec.difficulty.level).toBe("senior");
+    expect(spec.difficulty?.level).toBe("senior");
     expect(spec.thinkingStyles).toContain("trade_off");
   });
 
@@ -102,7 +102,7 @@ describe("parseCustomSession (LLM DI)", () => {
       updateMastery: true,
     });
     const { spec } = await parseCustomSession("Python の基礎を 3 問", caller);
-    expect(spec.difficulty.level).toBe("junior");
+    expect(spec.difficulty?.level).toBe("junior");
     expect(spec.thinkingStyles).toEqual([]);
     expect(spec.questionCount).toBe(3);
   });
@@ -130,4 +130,73 @@ describe("parseCustomSession (LLM DI)", () => {
     const { spec } = await parseCustomSession("network 5 問", caller);
     expect(spec.domains).toEqual(["network"]);
   });
+
+  it("Zod strict: 未知フィールドは reject (JSON schema additionalProperties:false と一致)", async () => {
+    const caller = vi.fn().mockResolvedValue({
+      questionCount: 5,
+      thinkingStyles: [],
+      difficulty: { kind: "absolute", level: "junior" },
+      updateMastery: true,
+      unknownField: "x",
+    });
+    await expect(parseCustomSession("x", caller)).rejects.toThrow();
+  });
+
+  it("未指定フィールドは omit (受け入れ基準 4): 最小形は questionCount だけ", async () => {
+    const caller = vi.fn().mockResolvedValue({ questionCount: 3 });
+    const { spec } = await parseCustomSession("3 問出して", caller);
+    expect(spec.questionCount).toBe(3);
+    expect(spec.difficulty).toBeUndefined();
+    expect(spec.thinkingStyles).toBeUndefined();
+    expect(spec.updateMastery).toBeUndefined();
+  });
+});
+
+describe("parseCustomSession snapshots (受け入れ基準: 5 本)", () => {
+  const cases: Array<{ name: string; llmJson: Record<string, unknown> }> = [
+    {
+      name: "面接レベル (senior + trade_off/edge_case)",
+      llmJson: {
+        questionCount: 5,
+        thinkingStyles: ["trade_off", "edge_case"],
+        difficulty: { kind: "absolute", level: "senior" },
+      },
+    },
+    {
+      name: "基礎 (junior + thinkingStyles 空の省略)",
+      llmJson: {
+        questionCount: 3,
+        difficulty: { kind: "absolute", level: "junior" },
+      },
+    },
+    {
+      name: "constraints.mustInclude (TLS 1.3)",
+      llmJson: {
+        questionCount: 2,
+        difficulty: { kind: "absolute", level: "mid" },
+        constraints: { mustInclude: ["TLS 1.3"] },
+      },
+    },
+    {
+      name: "ドメイン指定 + 実務的 (apply)",
+      llmJson: {
+        questionCount: 5,
+        domains: ["network"],
+        thinkingStyles: ["apply"],
+        difficulty: { kind: "absolute", level: "mid" },
+      },
+    },
+    {
+      name: "未指定 omit の最小形 (questionCount だけ)",
+      llmJson: { questionCount: 1 },
+    },
+  ];
+
+  for (const c of cases) {
+    it(c.name, async () => {
+      const caller = vi.fn().mockResolvedValue(c.llmJson);
+      const { spec, promptVersion, model } = await parseCustomSession("raw", caller);
+      expect({ spec, promptVersion, model }).toMatchSnapshot();
+    });
+  }
 });
