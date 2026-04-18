@@ -44,13 +44,17 @@ export function CopyForLlmButton(props: {
     }
   }
 
-  async function tryShare(text: string): Promise<boolean> {
-    if (typeof navigator === "undefined" || !navigator.share) return false;
+  type ShareResult = "ok" | "cancelled" | "unavailable";
+  async function tryShare(text: string): Promise<ShareResult> {
+    if (typeof navigator === "undefined" || !navigator.share) return "unavailable";
     try {
       await navigator.share({ text });
-      return true;
-    } catch {
-      return false;
+      return "ok";
+    } catch (e) {
+      // ユーザーが Share Sheet をキャンセルした場合 DOMException(AbortError) が返る。
+      // これはエラーではないのでサイレントに終了 (state はそのまま)
+      if (e instanceof DOMException && e.name === "AbortError") return "cancelled";
+      return "unavailable";
     }
   }
 
@@ -72,13 +76,19 @@ export function CopyForLlmButton(props: {
     if (await tryCopyToClipboard(text)) {
       setState("copied");
       setToast("コピーしました。ChatGPT / Claude に貼って深掘りしてください");
-    } else if (await tryShare(text)) {
-      setState("shared");
-      setToast("共有しました。ChatGPT / Claude に貼って深掘りしてください");
     } else {
-      setState("error");
-      setErrorMessage("この環境では clipboard / share API が使えません");
-      return;
+      const shareResult = await tryShare(text);
+      if (shareResult === "ok") {
+        setState("shared");
+        setToast("共有しました。ChatGPT / Claude に貼って深掘りしてください");
+      } else if (shareResult === "cancelled") {
+        // ユーザーキャンセルは無通知で完了 (カウンタも進めない)
+        return;
+      } else {
+        setState("error");
+        setErrorMessage("この環境では clipboard / share API が使えません");
+        return;
+      }
     }
 
     try {

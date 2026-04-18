@@ -249,6 +249,7 @@ export function DrillScreen() {
                   prompt: question.prompt,
                   tags: question.tags,
                   hint: question.hint,
+                  meta: question.meta,
                 }}
                 correctAnswer={grading.correctAnswer}
                 userAnswer={grading.userAnswer}

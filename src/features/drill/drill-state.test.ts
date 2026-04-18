@@ -13,6 +13,7 @@ const sampleQuestion: DrillQuestion = {
   ],
   hint: null,
   tags: ["rest"],
+  meta: null,
 };
 
 describe("useDrillStore", () => {

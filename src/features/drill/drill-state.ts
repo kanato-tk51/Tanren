@@ -7,6 +7,15 @@ export type DrillQuestion = {
   options: string[];
   hint: string | null;
   tags: string[];
+  /** copy-for-llm テンプレで使う concept / domain / 難易度 メタ (docs §7.13.4) */
+  meta: {
+    domain: string;
+    subdomain: string;
+    conceptId: string;
+    conceptName: string;
+    thinkingStyle: string | null;
+    difficulty: string;
+  } | null;
 };
 
 export type DrillGrading = {
