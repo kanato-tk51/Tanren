@@ -53,6 +53,21 @@ async function main() {
     .returning({ id: concepts.id });
 
   console.log(`✓ seeded ${inserted.length} concepts`);
+
+  // orphan 検出: DB にあるが YAML 側から消えた concept を警告する。
+  // 自動削除は questions / attempts / mastery への FK があり cascade 削除が重いため、
+  // 人間の判断で (1) YAML を元に戻す (2) 手動で archive / retire するのどちらかに委ねる。
+  const existingIds = await db.select({ id: concepts.id }).from(concepts);
+  const seededIds = new Set(knownIds);
+  const orphans = existingIds
+    .map((row) => row.id)
+    .filter((id) => !seededIds.has(id))
+    .sort();
+  if (orphans.length > 0) {
+    console.warn(
+      `⚠ ${orphans.length} concept(s) in DB but not in concepts.yaml (drift)\n  ${orphans.join("\n  ")}\n  → manually review: restore in YAML, or retire/archive explicitly.`,
+    );
+  }
 }
 
 main().catch((err) => {

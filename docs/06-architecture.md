@@ -62,8 +62,11 @@ Phase 5+ で追加:
 ```sql
 -- 知識ツリー
 -- domain の真実の源は docs/02-learning-system.md §2.1.1。TypeScript 側は
--- src/db/schema/_constants.ts の DOMAIN_IDS として const enum 化し、
--- concept 自体は src/db/seed/concepts.yaml が単一のマスタ (domains テーブルは作らない)。
+-- src/db/schema/_constants.ts の DOMAIN_IDS として const enum 化する。
+-- concept は:
+--   * 設計の真実の源 (意図・名前・難易度の根拠): docs/10-taxonomy-seed.md
+--   * 実行時のマスタ (DB への投入ソース): src/db/seed/concepts.yaml
+-- domains テーブルは作らない (二重管理を避ける)。
 CREATE TABLE concepts (
   id TEXT PRIMARY KEY,              -- 'network.tcp.congestion'
   domain_id TEXT NOT NULL,

@@ -1,6 +1,11 @@
 # MVP 初期 10 concept (docs/10-taxonomy-seed.md から抜粋)
-# 各フィールド (name / difficulty_levels / tags / prereqs) は docs/10-taxonomy-seed.md を
-# 真実の源として同期する。追加・改名は必ず同一 PR で docs 側も更新する。
+#
+# 真実の源の階層:
+#   - 設計 (name / difficulty_levels / tags / prereqs の意図): docs/10-taxonomy-seed.md
+#   - 実行時 (DB に投入される concept): このファイル (src/db/seed/concepts.yaml)
+# 追加・改名は必ず両者を同一 PR で同期する。
+# YAML から concept を消した場合、run.ts が DB 側の orphan を警告するので
+# 手動で retire / restore を判断する。
 
 concepts:
   # programming (3)
