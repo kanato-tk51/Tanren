@@ -178,10 +178,10 @@ function SpecPreview({ spec }: { spec: CustomSessionSpec }) {
     <div className="bg-muted/40 space-y-1 rounded-md border p-3">
       <div className="text-muted-foreground mb-1 text-xs">
         パース結果 (読み取り専用)。MVP で反映されるのは concepts (0-1件) / difficulty /
-        thinkingStyles (0-1件) / questionCount / updateMastery のみ。difficulty は
-        beginner/junior/mid/senior のみ、questionTypes は [&quot;mcq&quot;] 単一要素のみ、
-        それ以外のフィールド (domains / subdomains / excludeConcepts / constraints / 複数 concepts /
-        複数 thinkingStyles / mcq 以外 questionTypes) は開始時に reject されます。
+        thinkingStyles (0-1件) / questionCount / updateMastery のみ。 difficulty は 6 段階全て
+        (beginner/junior/mid/senior/staff/principal) 受け入れ、 questionTypes は [&quot;mcq&quot;]
+        単一要素のみ、それ以外のフィールド (domains / subdomains / excludeConcepts / constraints /
+        複数 concepts / 複数 thinkingStyles / mcq 以外 questionTypes) は開始時に reject されます。
       </div>
       <SpecRow label="ドメイン" value={spec.domains} />
       <SpecRow label="サブドメイン" value={spec.subdomains} />

@@ -107,17 +107,11 @@ export const sessionRouter = router({
         });
       }
 
-      // MVP 受け入れ基準 (Issue #18): 絶対難易度は beginner/junior/mid/senior のみ。
-      // staff/principal は Custom Session では Phase 5+ で解禁するためここで reject する。
-      if (input.customSpec?.difficulty) {
-        const level = input.customSpec.difficulty.level;
-        if (level !== "beginner" && level !== "junior" && level !== "mid" && level !== "senior") {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `Custom Session MVP は difficulty=${level} に未対応 (beginner/junior/mid/senior のみ)`,
-          });
-        }
-      }
+      // 絶対難易度 6 段階 (beginner/junior/mid/senior/staff/principal) を全て受け入れる。
+      // Issue #18 AC の「beginner/junior/mid/senior のみ」記述は保守的な初期値で、
+      // parser / prompt / docs (§4.10.1) / _constants.ts は 6 段階で統一されているため
+      // session.start もそれに合わせる (Round 10 指摘)。
+      // DifficultyAbsoluteSchema.level が 6 段階 enum なので実装追加の validation は不要。
       // MVP は mcq 生成のみ。UI 注記と一致させるため、正確に ['mcq'] (単一要素) だけ許可する。
       // ['mcq', 'written'] などの混在、['mcq', 'mcq'] のような重複も reject。
       if (input.customSpec?.questionTypes && input.customSpec.questionTypes.length > 0) {

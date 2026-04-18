@@ -55,19 +55,19 @@ describe("session.start with customSpec validation", () => {
     ).rejects.toBeInstanceOf(TRPCError);
   });
 
-  it("MVP 未対応: difficulty=staff / principal は BAD_REQUEST", async () => {
+  it("difficulty=staff / principal も受け入れる (Round 10: 6 段階統一)", async () => {
     await expect(
       caller.session.start({
         kind: "custom",
         customSpec: { questionCount: 3, difficulty: { kind: "absolute", level: "staff" } },
       }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    ).resolves.toHaveProperty("sessionId");
     await expect(
       caller.session.start({
         kind: "custom",
         customSpec: { questionCount: 3, difficulty: { kind: "absolute", level: "principal" } },
       }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    ).resolves.toHaveProperty("sessionId");
   });
 
   it("MVP 未対応: questionTypes が mcq 以外を含むと BAD_REQUEST", async () => {
