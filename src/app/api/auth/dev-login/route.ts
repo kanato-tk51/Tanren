@@ -1,27 +1,18 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+import { isDevShortcutAvailable } from "@/server/auth/capabilities";
 import { DEV_SESSION_COOKIE_NAME } from "@/server/auth/constants";
 import { tryDevAutoLoginUser } from "@/server/auth/dev-login";
 import { createSession } from "@/server/auth/session";
-import { isPasskeyEnabled } from "@/server/auth/webauthn";
 
 /**
- * Passkey 無効環境 (Preview の一部 / 作者ローカルで WebAuthn を切った場合) の
- * ワンショット自動ログイン。Users テーブルにちょうど 1 名しかいない個人用プロダクトのみで許可。
- *
- * 本番 (Vercel production) では WEBAUTHN_* の設定漏れが「誰でも owner としてログイン可」に
- * 化けないよう、404 (エンドポイント自体を隠蔽) を返す。Preview / dev だけで利用可能。
+ * Passkey 無効環境 (Preview の一部 / 作者ローカル) のワンショット自動ログイン。
+ * 利用可否は `isDevShortcutAvailable()` に一元化し、UI と Route Handler で齟齬が出ないようにする。
  */
 export async function POST() {
-  if (process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production") {
+  if (!isDevShortcutAvailable()) {
     return new NextResponse("Not Found", { status: 404 });
-  }
-  if (isPasskeyEnabled()) {
-    return NextResponse.json(
-      { error: "Passkey is enabled; use /api/auth/authenticate" },
-      { status: 400 },
-    );
   }
 
   const user = await tryDevAutoLoginUser();

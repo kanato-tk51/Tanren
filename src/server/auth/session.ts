@@ -8,6 +8,7 @@ import { cookies } from "next/headers";
 import { getDb } from "@/db/client";
 import { sessionsAuth, users, type User } from "@/db/schema";
 
+import { isDevShortcutAvailable } from "./capabilities";
 import { DEV_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "./constants";
 
 export type CookieStore = ReadonlyRequestCookies | Awaited<ReturnType<typeof cookies>>;
@@ -56,7 +57,11 @@ export async function createSession(userId: string): Promise<{
  */
 export async function resolveSession(store: CookieStore): Promise<SessionResolution | null> {
   const passkeyId = store.get(SESSION_COOKIE_NAME)?.value ?? null;
-  const devId = store.get(DEV_SESSION_COOKIE_NAME)?.value ?? null;
+  // dev cookie は「dev ショートカットが許可された環境」でのみ受理する。
+  // pre-production で発行された cookie を self-host 本番に持ち込まれるバイパス対策。
+  const devId = isDevShortcutAvailable()
+    ? (store.get(DEV_SESSION_COOKIE_NAME)?.value ?? null)
+    : null;
   const sessionId = passkeyId ?? devId;
   if (!sessionId) return null;
   const kind: "passkey" | "dev" = passkeyId ? "passkey" : "dev";

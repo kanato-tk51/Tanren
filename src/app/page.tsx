@@ -1,15 +1,23 @@
-import { PingCard } from "@/features/ping/ping-card";
+import { getCurrentUser } from "@/server/auth/session";
 
-export default function Home() {
+import { HomeScreen } from "@/features/home/home-screen";
+
+export default async function Home() {
+  const initialUser = await getCurrentUser();
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-zinc-50 p-8 font-sans dark:bg-black">
-      <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-        Tanren
-      </h1>
-      <p className="max-w-md text-center text-zinc-600 dark:text-zinc-400">
-        エンジニアのための AI 家庭教師。Phase 0 bootstrap。
-      </p>
-      <PingCard />
+    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
+      <HomeScreen
+        initialUser={
+          initialUser
+            ? {
+                id: initialUser.id,
+                email: initialUser.email,
+                displayName: initialUser.displayName,
+                dailyGoal: initialUser.dailyGoal,
+              }
+            : null
+        }
+      />
     </main>
   );
 }
