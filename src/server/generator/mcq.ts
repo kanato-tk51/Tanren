@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import {
@@ -85,9 +85,13 @@ async function countCachedQuestions(params: {
     eq(questions.retired, false),
     gte(questions.createdAt, since),
   ];
-  if (params.thinkingStyle) {
-    predicates.push(eq(questions.thinkingStyle, params.thinkingStyle));
-  }
+  // thinkingStyle の null/値 ともに lookup (findCachedQuestion) と同じキーで絞る。
+  // 片側だけ合算すると MIN_CACHE_COUNT 判定が崩れて 50/50 分岐が早まる。
+  predicates.push(
+    params.thinkingStyle === null
+      ? isNull(questions.thinkingStyle)
+      : eq(questions.thinkingStyle, params.thinkingStyle),
+  );
   const rows = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(questions)
