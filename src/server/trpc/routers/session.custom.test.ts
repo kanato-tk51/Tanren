@@ -1,9 +1,20 @@
 import { TRPCError } from "@trpc/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { User } from "@/db/schema";
 
 import { appRouter } from "./index";
+
+// DB クライアントをスタブ。session.start は insert().values().returning() をチェーンで呼ぶ。
+vi.mock("@/db/client", () => {
+  const returning = vi.fn().mockResolvedValue([{ id: "sess-fake" }]);
+  const values = vi.fn().mockReturnValue({ returning });
+  const insert = vi.fn().mockReturnValue({ values });
+  return {
+    getDb: vi.fn().mockReturnValue({ insert }),
+    __getDbMocks: { insert, values, returning },
+  };
+});
 
 describe("session.start with customSpec validation", () => {
   const fakeUser = { id: "u-1" } as User;
@@ -152,20 +163,21 @@ describe("session.start with customSpec validation", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
-  it("questionTypes=['mcq'] 単体は accept (正のケース: DB まで到達する)", async () => {
-    // DB へのアクセスは fake user ではエラーになるので、start 入力バリデーションを通過して
-    // DB 層に到達したことの確認として、バリデーション以外のエラーに落ちれば OK。
-    const promise = caller.session.start({
+  it("正ケース: questionTypes=['mcq'] / thinkingStyles=[one] / concepts=[one] は全て accept し DB insert へ到達", async () => {
+    // 入力バリデーションを全て通過すると getDb().insert(sessions).values().returning() が呼ばれる。
+    // 返り値はモック で { id: 'sess-fake' }。
+    const res = await caller.session.start({
       kind: "custom",
       customSpec: {
         questionCount: 3,
         difficulty: { kind: "absolute", level: "junior" },
         questionTypes: ["mcq"],
+        thinkingStyles: ["trade_off"],
+        concepts: ["network.tcp.basics"],
       },
     });
-    await expect(promise).rejects.not.toMatchObject({
-      message: expect.stringContaining("questionTypes"),
-    });
+    expect(res.sessionId).toBe("sess-fake");
+    expect(res.targetCount).toBe(3);
   });
 
   it("MVP 未対応: constraints の実効フィールドがあれば BAD_REQUEST", async () => {
