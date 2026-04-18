@@ -28,10 +28,28 @@ type Phase =
  * 1. 自然言語入力 → custom.parse → 読み取り専用カード
  * 2. 違うと判断したら raw を修正して再パース (MVP は編集フォームなし)
  * 3. 開始ボタン → session.start({kind:"custom", spec}) → useDrillStore に流し込み → DrillScreen
+ *
+ * Insights Dashboard 等から ?conceptId=... で来た場合は、LLM parse を迂回して
+ * initialSpec (concepts=[conceptId], questionCount=5) を decoding で組み立て、
+ * そのまま previewing 状態に遷移する (Round 3 指摘 #1 対応)。
  */
-export function CustomScreen() {
-  const [phase, setPhase] = useState<Phase>({ kind: "input" });
-  const [raw, setRaw] = useState("");
+export function CustomScreen({
+  initialRaw,
+  initialConceptId,
+}: { initialRaw?: string; initialConceptId?: string } = {}) {
+  // initialConceptId があれば LLM を通さず previewing に直行する。
+  const initialSpec: CustomSessionSpec | null = initialConceptId
+    ? { concepts: [initialConceptId], questionCount: 5 }
+    : null;
+  const initialRawForPreview = initialSpec
+    ? (initialRaw ?? `concept ${initialConceptId} を 5 問`)
+    : "";
+  const [phase, setPhase] = useState<Phase>(
+    initialSpec
+      ? { kind: "previewing", raw: initialRawForPreview, spec: initialSpec }
+      : { kind: "input" },
+  );
+  const [raw, setRaw] = useState(initialRaw ?? initialRawForPreview);
   const [error, setError] = useState<string | null>(null);
 
   const parseMutation = trpc.custom.parse.useMutation();
