@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc/react";
 
-import { useDrillStore } from "./drill-state";
+import { normalizeRubricChecks, useDrillStore } from "./drill-state";
 
 /**
  * 採点結果への反論フォーム (issue #15, R1 対策)。
@@ -63,6 +63,7 @@ export function RebuttalForm({
         score: res.score,
         feedback: res.feedback,
         rebutted: true,
+        rubricChecks: normalizeRubricChecks(res.rubricChecks),
       });
       setNotice(
         res.overturned

@@ -1,5 +1,18 @@
 import { create } from "zustand";
 
+import type { CopyForLlmQuestionMeta } from "@/lib/share/copy-for-llm";
+
+/** submit / rebut 経路の API レスポンスから drill store 用の rubricChecks を正規化する */
+export function normalizeRubricChecks(
+  raw: Array<{ id: string; passed: boolean; comment?: string | null }> | null | undefined,
+): Array<{ id: string; passed: boolean; comment: string }> {
+  return (raw ?? []).map((r) => ({
+    id: r.id,
+    passed: r.passed,
+    comment: r.comment ?? "",
+  }));
+}
+
 export type DrillQuestion = {
   id: string;
   prompt: string;
@@ -7,6 +20,8 @@ export type DrillQuestion = {
   options: string[];
   hint: string | null;
   tags: string[];
+  /** copy-for-llm テンプレで使う concept / domain / 難易度 メタ (docs §7.13.4) */
+  meta: CopyForLlmQuestionMeta | null;
 };
 
 export type DrillGrading = {
@@ -20,6 +35,12 @@ export type DrillGrading = {
   questionType: string | null;
   /** 反論済みフラグ (1 attempt につき 1 回) */
   rebutted?: boolean;
+  /** 正解のテキスト (copy-for-llm / 採点後の表示に使う) */
+  correctAnswer: string | null;
+  /** ユーザーが実際に回答した文字列 (mcq は選択した選択肢の文言) */
+  userAnswer: string | null;
+  /** copy-for-llm テンプレで使う採点ルーブリック結果 (短答・記述のみ埋まる) */
+  rubricChecks: Array<{ id: string; passed: boolean; comment: string }>;
 };
 
 export type DrillSummary = {

@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "@/db/client";
@@ -120,6 +120,28 @@ export const attemptsRouter = router({
         score: graded.score,
         feedback: graded.feedback,
         overturned,
+        rubricChecks: graded.rubricChecks,
       };
+    }),
+
+  /**
+   * 「詳しく聞く用にコピー」ボタン押下時に呼ぶ (issue #16)。
+   *
+   * 実際のテキスト生成は `src/lib/share/copy-for-llm.ts` でクライアント側に行い、
+   * このエンドポイントはカウンタ (attempts.copied_for_external) を +1 するだけ。
+   * 利用率の指標 (docs/09 success metrics) として集計するためのもの。
+   */
+  markCopiedForExternal: protectedProcedure
+    .input(z.object({ attemptId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+      const rows = await db
+        .update(attempts)
+        .set({ copiedForExternal: sql`${attempts.copiedForExternal} + 1` })
+        .where(and(eq(attempts.id, input.attemptId), eq(attempts.userId, ctx.user.id)))
+        .returning({ id: attempts.id, copiedForExternal: attempts.copiedForExternal });
+      const row = rows[0];
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "attempt not found" });
+      return { attemptId: row.id, copiedForExternal: row.copiedForExternal };
     }),
 });

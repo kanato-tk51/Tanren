@@ -14,8 +14,9 @@ import {
 } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc/react";
 
+import { CopyForLlmButton } from "./copy-for-llm-button";
 import { RebuttalForm } from "./rebuttal-form";
-import { useDrillStore } from "./drill-state";
+import { normalizeRubricChecks, useDrillStore } from "./drill-state";
 
 export function DrillScreen() {
   const { phase, sessionId, question, selectedIndex, grading, summary } = useDrillStore();
@@ -87,6 +88,9 @@ export function DrillScreen() {
         feedback: result.feedback,
         correctIndex: result.correct ? selectedIndex : null,
         questionType: result.questionType ?? null,
+        correctAnswer: result.correctAnswer ?? null,
+        userAnswer: answer,
+        rubricChecks: normalizeRubricChecks(result.rubricChecks),
       });
     } catch (e) {
       setErrorMessage(toMessage(e));
@@ -236,12 +240,31 @@ export function DrillScreen() {
             </button>
           );
         })}
-        {phase === "graded" && grading && (
+        {phase === "graded" && grading && question && (
           <div className="space-y-2">
             <div className="bg-muted/50 rounded-md p-3 text-sm">{grading.feedback}</div>
-            {grading.questionType && grading.questionType !== "mcq" && (
-              <RebuttalForm attemptId={grading.attemptId} />
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <CopyForLlmButton
+                attemptId={grading.attemptId}
+                question={{
+                  prompt: question.prompt,
+                  tags: question.tags,
+                  hint: question.hint,
+                  meta: question.meta,
+                }}
+                correctAnswer={grading.correctAnswer}
+                userAnswer={grading.userAnswer}
+                grading={{
+                  correct: grading.correct,
+                  score: grading.score,
+                  feedback: grading.feedback,
+                  rubricChecks: grading.rubricChecks,
+                }}
+              />
+              {grading.questionType && grading.questionType !== "mcq" && (
+                <RebuttalForm attemptId={grading.attemptId} />
+              )}
+            </div>
           </div>
         )}
         {errorMessage && (

@@ -12,6 +12,7 @@ import {
   THINKING_STYLES,
   type DifficultyLevel,
 } from "@/db/schema";
+import type { CopyForLlmQuestionMeta } from "@/lib/share/copy-for-llm";
 import { generateMcq } from "@/server/generator/mcq";
 import { gradeAttempt } from "@/server/grader";
 import { selectDailyCandidates } from "@/server/scheduler/daily";
@@ -148,6 +149,7 @@ export const sessionRouter = router({
 
       // 予約後に問題生成が失敗したら pendingQuestionId を null に戻してセッションを復帰させる。
       let question: Awaited<ReturnType<typeof generateMcq>>["question"];
+      let questionMeta: CopyForLlmQuestionMeta | null = null;
       try {
         const conceptRow = input.conceptId
           ? await loadConcept(input.conceptId)
@@ -173,6 +175,14 @@ export const sessionRouter = router({
           thinkingStyle: input.thinkingStyle,
         });
         question = generated.question;
+        questionMeta = {
+          domain: conceptRow.domainId,
+          subdomain: conceptRow.subdomainId,
+          conceptId: conceptRow.id,
+          conceptName: conceptRow.name,
+          thinkingStyle: input.thinkingStyle,
+          difficulty: effectiveDifficulty,
+        };
       } catch (err) {
         await getDb()
           .update(sessions)
@@ -203,6 +213,7 @@ export const sessionRouter = router({
           options,
           hint: question.hint,
           tags: (question.tags ?? []) as string[],
+          meta: questionMeta,
         },
       };
     }),
@@ -264,6 +275,8 @@ export const sessionRouter = router({
         score: result.score,
         feedback: result.feedback,
         questionType: result.questionType,
+        correctAnswer: result.correctAnswer,
+        rubricChecks: result.rubricChecks,
       };
     }),
 
