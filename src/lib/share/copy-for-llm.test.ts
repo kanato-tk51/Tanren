@@ -9,53 +9,82 @@ describe("buildCopyForLlm", () => {
       answer: "PUT は冪等、PATCH は部分更新。",
       tags: ["http", "rest"],
       hint: null,
+      meta: {
+        domain: "backend",
+        subdomain: "http",
+        conceptName: "PUT / PATCH",
+        conceptId: "backend.http.put_patch",
+        thinkingStyle: "concept",
+        difficulty: "junior",
+      },
     },
     userAnswer: "PUT は全置換、PATCH は差分",
-    grading: { correct: true, score: 0.85, feedback: "主旨は合っています" },
+    grading: {
+      correct: true,
+      score: 0.85,
+      feedback: "主旨は合っています",
+      rubricChecks: [{ id: "r1", passed: true, comment: "冪等性に言及" }],
+    },
   };
 
-  it("すべてのセクションを含む snapshot", () => {
+  it("docs §7.13.4 準拠 テンプレ snapshot", () => {
     expect(buildCopyForLlm(base)).toMatchSnapshot();
   });
 
-  it("hint が null のときは # ヒントセクションを出さない", () => {
-    const out = buildCopyForLlm(base);
-    expect(out).not.toContain("# ヒント");
+  it("冒頭が「私はエンジニア学習アプリ」で始まる", () => {
+    expect(buildCopyForLlm(base).startsWith("私はエンジニア学習アプリ")).toBe(true);
   });
 
-  it("hint があるとヒントセクションを出す", () => {
+  it("hint が null のときは ## ヒントセクションを出さない", () => {
+    const out = buildCopyForLlm(base);
+    expect(out).not.toContain("## ヒント");
+  });
+
+  it("hint があると出す", () => {
     const out = buildCopyForLlm({
       ...base,
       question: { ...base.question, hint: "動詞の意味から考える" },
     });
-    expect(out).toContain("# ヒント");
+    expect(out).toContain("## ヒント");
     expect(out).toContain("動詞の意味から考える");
   });
 
-  it("tags が空なら # 分野を出さない", () => {
-    const out = buildCopyForLlm({ ...base, question: { ...base.question, tags: [] } });
-    expect(out).not.toContain("# 分野");
+  it("meta が空でも落ちない / 関連行は出さない", () => {
+    const out = buildCopyForLlm({
+      ...base,
+      question: { ...base.question, meta: null, tags: [] },
+    });
+    expect(out).not.toContain("- ドメイン:");
+    expect(out).not.toContain("- 概念:");
+    expect(out).not.toContain("- 思考スタイル:");
+    expect(out).toContain("## 問題");
   });
 
   it("未回答 / 未評価の表示", () => {
     const out = buildCopyForLlm({
       ...base,
       userAnswer: "",
-      grading: { correct: null, score: null, feedback: null },
+      grading: { correct: null, score: null, feedback: null, rubricChecks: [] },
     });
     expect(out).toContain("(未回答)");
-    expect(out).toContain("判定: 未判定");
-    expect(out).toContain("スコア: 未評価");
-    // feedback が null のときは フィードバック行を出さない
+    expect(out).toContain("- スコア: 未評価");
+    expect(out).not.toContain("- 判定:");
     expect(out).not.toContain("- フィードバック:");
   });
 
-  it("不正解のときは × 不正解 と表示", () => {
+  it("user answer が 2000 文字を超えたら ... で切る", () => {
+    const long = "あ".repeat(2500);
+    const out = buildCopyForLlm({ ...base, userAnswer: long });
+    expect(out).toContain("...");
+    expect(out).not.toContain("あ".repeat(2500));
+  });
+
+  it("バッククォート 3 連は ~~~ に置換 (貼り付け先でのコードブロック衝突回避)", () => {
     const out = buildCopyForLlm({
       ...base,
-      grading: { correct: false, score: 0.3, feedback: "逆です" },
+      userAnswer: "```ts\nconsole.log(1)\n```",
     });
-    expect(out).toContain("× 不正解");
-    expect(out).toContain("スコア: 0.30");
+    expect(out).not.toContain("```");
+    expect(out).toContain("~~~");
   });
 });

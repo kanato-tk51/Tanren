@@ -1,10 +1,9 @@
 /**
- * 採点結果を LLM にコピペして深掘り質問するためのテンプレ整形 (issue #16)。
- *
- * docs/07-ux-and-pwa.md §7.13 に従い、問題文 / 自分の回答 / 採点結果を 1 本のテキストにまとめる。
- * 外部 LLM (ChatGPT / Claude など) に貼り付けて「もっと詳しく教えて」「関連する概念は?」などの
- * 追い質問をするための用途。
+ * 採点結果を外部 LLM (ChatGPT / Claude) にコピペして深掘り質問するためのテンプレ整形 (issue #16)。
+ * テンプレ定義は docs/07-ux-and-pwa.md §7.13.4 に従う。
  */
+
+const MAX_USER_ANSWER_LEN = 2000;
 
 export type CopyForLlmInput = {
   question: {
@@ -15,68 +14,135 @@ export type CopyForLlmInput = {
     tags?: string[] | null;
     /** 任意: ヒント */
     hint?: string | null;
+    /** docs §7.13.4 に従う任意メタ。取得可能なものだけ埋める */
+    meta?: {
+      domain?: string | null;
+      subdomain?: string | null;
+      conceptName?: string | null;
+      conceptId?: string | null;
+      thinkingStyle?: string | null;
+      difficulty?: string | null;
+    } | null;
   };
   userAnswer: string;
   grading: {
     correct: boolean | null;
     score: number | null;
     feedback: string | null;
+    rubricChecks?: Array<{ id: string; passed: boolean; comment: string }> | null;
   };
 };
 
-function formatCorrect(correct: boolean | null): string {
-  if (correct === true) return "○ 正解";
-  if (correct === false) return "× 不正解";
-  return "未判定";
+/**
+ * 貼り付け先で誤解を招かないよう、本文中のコードブロック開始文字列 ``` を
+ * 似た形の `~~~` に置換する。これで 3 連バッククォートの衝突が避けられる。
+ */
+function sanitize(text: string): string {
+  return text.replace(/```/g, "~~~");
 }
 
-function formatScore(score: number | null): string {
-  if (score === null) return "未評価";
-  return score.toFixed(2);
+function truncate(text: string): string {
+  if (text.length <= MAX_USER_ANSWER_LEN) return text;
+  return `${text.slice(0, MAX_USER_ANSWER_LEN)}...`;
+}
+
+function formatDomainLine(meta: NonNullable<CopyForLlmInput["question"]["meta"]>): string | null {
+  const left = meta.domain?.trim();
+  const right = meta.subdomain?.trim();
+  if (!left && !right) return null;
+  return `- ドメイン: ${left ?? "-"} > ${right ?? "-"}`;
+}
+
+function formatConceptLine(meta: NonNullable<CopyForLlmInput["question"]["meta"]>): string | null {
+  const name = meta.conceptName?.trim();
+  const id = meta.conceptId?.trim();
+  if (!name && !id) return null;
+  if (name && id) return `- 概念: ${name} (${id})`;
+  return `- 概念: ${name ?? id}`;
+}
+
+function formatRubricChecks(
+  rubricChecks: NonNullable<CopyForLlmInput["grading"]["rubricChecks"]>,
+): string {
+  if (rubricChecks.length === 0) return "  - (採点ルーブリックなし)";
+  return rubricChecks
+    .map((r) => `  - id=${r.id}: ${r.passed ? "✓" : "✗"} ${r.comment ?? ""}`)
+    .join("\n");
 }
 
 /**
- * プロンプト全体を組み立てる。貼り付け先でコードブロックや引用が混ざらないよう、
- * シンプルな見出し + プレーンテキストでまとめる。
+ * docs/07 §7.13.4 のテンプレートに沿って貼り付け用テキストを組み立てる。
+ * 取得できないメタ (concept 名など) はセクション/行ごとスキップする。
  */
 export function buildCopyForLlm(input: CopyForLlmInput): string {
   const { question, userAnswer, grading } = input;
+  const meta = question.meta ?? {};
   const lines: string[] = [];
 
-  lines.push(
-    "以下の問題と、自分の回答・採点結果を共有します。理解を深めるために詳しく解説してください。",
-  );
+  lines.push("私はエンジニア学習アプリで以下の問題に答えました。");
+  lines.push("詳しく解説してほしいです。特に以下をお願いします。");
   lines.push("");
+  lines.push("1. 私の回答のどの部分が合っていて、どの部分が不足/誤解しているか");
+  lines.push("2. この概念の背景 (なぜこういう仕組みになっているか)");
+  lines.push("3. 関連する概念や、実務でのハマりどころ");
+  lines.push("4. 理解が深まる具体例を 1-2 個");
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+
+  const metaLines: string[] = [];
+  const domainLine = formatDomainLine(meta);
+  if (domainLine) metaLines.push(domainLine);
+  const conceptLine = formatConceptLine(meta);
+  if (conceptLine) metaLines.push(conceptLine);
+  if (meta.thinkingStyle) metaLines.push(`- 思考スタイル: ${meta.thinkingStyle}`);
+  if (meta.difficulty) metaLines.push(`- 難易度: ${meta.difficulty}`);
   if (question.tags && question.tags.length > 0) {
-    lines.push(`# 分野`);
-    lines.push(question.tags.join(" / "));
+    metaLines.push(`- タグ: ${question.tags.join(" / ")}`);
+  }
+
+  lines.push("## 問題");
+  if (metaLines.length > 0) {
+    lines.push(...metaLines);
     lines.push("");
   }
-  lines.push(`# 問題`);
-  lines.push(question.prompt);
+  lines.push(sanitize(question.prompt));
   lines.push("");
+
   if (question.hint) {
-    lines.push(`# ヒント`);
-    lines.push(question.hint);
+    lines.push("## ヒント");
+    lines.push(sanitize(question.hint));
     lines.push("");
   }
-  lines.push(`# 期待される回答`);
-  lines.push(question.answer);
+
+  lines.push("## 模範解答");
+  lines.push(sanitize(question.answer));
   lines.push("");
-  lines.push(`# 自分の回答`);
-  lines.push(userAnswer.length > 0 ? userAnswer : "(未回答)");
+
+  lines.push("## 私の回答");
+  lines.push(userAnswer.length > 0 ? sanitize(truncate(userAnswer)) : "(未回答)");
   lines.push("");
-  lines.push(`# 採点`);
-  lines.push(`- 判定: ${formatCorrect(grading.correct)}`);
-  lines.push(`- スコア: ${formatScore(grading.score)}`);
+
+  lines.push("## Tanren の採点");
+  if (grading.score !== null) {
+    lines.push(`- スコア: ${grading.score.toFixed(2)} / 1.0`);
+  } else {
+    lines.push("- スコア: 未評価");
+  }
+  if (grading.correct !== null) {
+    lines.push(`- 判定: ${grading.correct ? "○ 正解" : "× 不正解"}`);
+  }
+  if (grading.rubricChecks && grading.rubricChecks.length > 0) {
+    lines.push("- ルーブリック:");
+    lines.push(formatRubricChecks(grading.rubricChecks));
+  }
   if (grading.feedback) {
-    lines.push(`- フィードバック: ${grading.feedback}`);
+    lines.push(`- フィードバック: ${sanitize(grading.feedback)}`);
   }
   lines.push("");
-  lines.push(`# お願い`);
-  lines.push("1. 期待回答と自分の回答の差分がどこにあるか指摘してください。");
-  lines.push("2. この概念で混同しがちなポイントや関連概念を教えてください。");
-  lines.push("3. 次に押さえるべき学習項目を 1-2 個挙げてください。");
+  lines.push("---");
+  lines.push("");
+  lines.push("上記を踏まえて、初学者にも分かるように丁寧に解説してください。");
 
   return lines.join("\n");
 }
