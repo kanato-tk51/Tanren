@@ -62,7 +62,7 @@ export function ReviewScreen() {
       <CardHeader>
         <CardTitle>
           <RotateCcw className="mr-1 inline h-5 w-5" />
-          Mistake Review
+          誤答復習
         </CardTitle>
         <CardDescription>
           直近 14 日間で誤答した concept を 10-15 問にわたって復習します。
@@ -71,8 +71,9 @@ export function ReviewScreen() {
       <CardContent className="text-muted-foreground space-y-2 text-sm">
         <p>
           concept ごとに最新の誤答 1 件ずつを候補化し、Drill 画面で解きます。候補が 10
-          件未満のときは同じ concept を別の問題で繰り返し出題して 10-15 問の
-          枠を埋めます。誤答した分野の「叩き直し」に使ってください。
+          件未満のときは同じ concept を複数ターンにまたがって出題し 10-15 問の 枠を埋めます
+          (別問題になる保証はなく、生成キャッシュ状況に依存)。
+          誤答した分野の「叩き直し」に使ってください。
         </p>
         {error && (
           <div className="text-destructive flex items-start gap-1 text-xs">
@@ -86,7 +87,7 @@ export function ReviewScreen() {
           {(startMutation.isPending || nextMutation.isPending) && (
             <Loader2 className="mr-1 h-4 w-4 animate-spin" />
           )}
-          Review を始める
+          復習を始める
           <ArrowRight className="ml-1 h-4 w-4" />
         </Button>
       </CardFooter>

@@ -89,6 +89,17 @@ describe("session.start({kind:'review'}) 境界 (issue #23)", () => {
   });
 });
 
+describe("pickReviewConcept が session.ts から参照されている回帰ガード", () => {
+  it("session.ts モジュール source に pickReviewConcept 呼び出しがある", async () => {
+    // 実装側でインライン formula に戻る退行を grep で検出 (Round 5 指摘 #2)。
+    const fs = await import("node:fs/promises");
+    const src = await fs.readFile(new URL("./session.ts", import.meta.url).pathname, "utf8");
+    expect(src).toContain("pickReviewConcept");
+    // インライン formula が復活していないこと
+    expect(src).not.toMatch(/reviewQueue\[session\.questionCount\s*%/);
+  });
+});
+
 describe("pickReviewConcept (session.next のラウンドロビン実体、issue #23 受け入れ基準)", () => {
   // session.ts から切り出した pure 関数を直接 import して検証。タウトロジーではなく
   // 実装が使う同一の関数参照を検証するので、session.ts 側で pick 式を壊すと失敗する。
