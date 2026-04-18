@@ -19,7 +19,7 @@ import {
  * - Passkey 有効環境: `startAuthentication` を叩いて cookie を発行
  * - Passkey 無効環境 (Preview / 作者 dev): `/api/auth/dev-login` でユーザー 1 名自動ログイン
  */
-export function LoginForm() {
+export function LoginForm({ showDevShortcut = false }: { showDevShortcut?: boolean }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,9 +81,11 @@ export function LoginForm() {
         <Button onClick={handlePasskey} disabled={loading}>
           {loading ? "通信中…" : "Passkey でログイン"}
         </Button>
-        <Button variant="outline" onClick={handleDevLogin} disabled={loading}>
-          Dev ショートカット
-        </Button>
+        {showDevShortcut && (
+          <Button variant="outline" onClick={handleDevLogin} disabled={loading}>
+            Dev ショートカット
+          </Button>
+        )}
       </CardFooter>
     </Card>
   );
