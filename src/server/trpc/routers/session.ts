@@ -22,6 +22,7 @@ import {
   REVIEW_DEFAULT_COUNT,
   REVIEW_DEFAULT_DAYS,
   REVIEW_MAX_COUNT,
+  pickReviewConcept,
   selectReviewCandidates,
 } from "@/server/scheduler/review";
 
@@ -314,10 +315,9 @@ export const sessionRouter = router({
         // questionCount の順に 1 対 1 で割り当てる (ラウンドロビン、issue #23)。
         const customSpec = spec.customSpec;
         const customConceptId = customSpec?.concepts?.[0];
-        const reviewQueue = spec.reviewConceptIds ?? null;
         const reviewConceptId =
-          session.kind === "review" && reviewQueue
-            ? (reviewQueue[session.questionCount % reviewQueue.length] ?? null)
+          session.kind === "review"
+            ? pickReviewConcept(spec.reviewConceptIds, session.questionCount)
             : null;
         const effectiveConceptId = reviewConceptId
           ? reviewConceptId

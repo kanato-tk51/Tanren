@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { User } from "@/db/schema";
+import { pickReviewConcept } from "@/server/scheduler/review";
 
 import { appRouter } from "./index";
 
@@ -88,23 +89,29 @@ describe("session.start({kind:'review'}) 境界 (issue #23)", () => {
   });
 });
 
-describe("session.next のラウンドロビン (issue #23 受け入れ基準)", () => {
-  it("reviewConceptIds=[a,b,c] + questionCount=0..5 で a,b,c,a,b,c の順に pick される", () => {
-    // session.next 側のロジックを純粋関数として切り出して unit 検証する。
-    // pick: reviewConceptIds[session.questionCount % reviewConceptIds.length]
+describe("pickReviewConcept (session.next のラウンドロビン実体、issue #23 受け入れ基準)", () => {
+  // session.ts から切り出した pure 関数を直接 import して検証。タウトロジーではなく
+  // 実装が使う同一の関数参照を検証するので、session.ts 側で pick 式を壊すと失敗する。
+  it("reviewConceptIds=[a,b,c] + questionCount=0..9 で a,b,c,a,b,c,... の順に pick される", () => {
     const queue = ["a", "b", "c"];
-    const picks = Array.from({ length: 10 }).map((_, questionCount) => {
-      return queue[questionCount % queue.length];
-    });
+    const picks = Array.from({ length: 10 }).map((_, questionCount) =>
+      pickReviewConcept(queue, questionCount),
+    );
     expect(picks).toEqual(["a", "b", "c", "a", "b", "c", "a", "b", "c", "a"]);
   });
 
-  it("候補 1 件でも 10 ターン分キューから pick できる (全て同 concept)", () => {
+  it("候補 1 件でも 10 ターン分全て同 concept を返す", () => {
     const queue = ["only"];
-    const picks = Array.from({ length: 10 }).map((_, questionCount) => {
-      return queue[questionCount % queue.length];
-    });
+    const picks = Array.from({ length: 10 }).map((_, questionCount) =>
+      pickReviewConcept(queue, questionCount),
+    );
     expect(picks.every((p) => p === "only")).toBe(true);
     expect(picks.length).toBe(10);
+  });
+
+  it("空キュー / null / undefined は全て null を返す", () => {
+    expect(pickReviewConcept([], 0)).toBeNull();
+    expect(pickReviewConcept(null, 0)).toBeNull();
+    expect(pickReviewConcept(undefined, 0)).toBeNull();
   });
 });

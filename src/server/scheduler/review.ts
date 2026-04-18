@@ -14,6 +14,19 @@ export const REVIEW_DEFAULT_DAYS = 14;
 export const REVIEW_DEFAULT_COUNT = 10;
 export const REVIEW_MAX_COUNT = 15;
 
+/**
+ * session.next が `reviewConceptIds` から次に出題する concept を選ぶロジック。
+ * `session.questionCount` をインデックスとしたラウンドロビン (空キューは null)。
+ * 別モジュールから import してテストできるよう切り出し (issue #23 Round 4 指摘)。
+ */
+export function pickReviewConcept(
+  queue: readonly string[] | null | undefined,
+  questionCount: number,
+): string | null {
+  if (!queue || queue.length === 0) return null;
+  return queue[questionCount % queue.length] ?? null;
+}
+
 export type ReviewCandidate = {
   concept: Concept;
   /** 最新の誤答 attempt の createdAt (concept ランキングの降順キー) */
