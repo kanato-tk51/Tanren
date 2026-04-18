@@ -47,4 +47,34 @@ describe("seed file", () => {
     const row = toConceptRow(sample!);
     expect(row.prereqs).toEqual(["programming.async.event_loop"]);
   });
+
+  it("id の domain prefix と domain フィールドが食い違う seed は Zod で reject", () => {
+    const bad = {
+      concepts: [
+        {
+          id: "network.http.status_codes",
+          name: "不整合サンプル",
+          domain: "db",
+          subdomain: "http",
+          difficulty_levels: ["beginner"],
+        },
+      ],
+    };
+    expect(() => SeedFileSchema.parse(bad)).toThrow(/domain/);
+  });
+
+  it("id の subdomain prefix と subdomain フィールドが食い違う seed も reject", () => {
+    const bad = {
+      concepts: [
+        {
+          id: "network.http.status_codes",
+          name: "不整合サンプル",
+          domain: "network",
+          subdomain: "tcp",
+          difficulty_levels: ["beginner"],
+        },
+      ],
+    };
+    expect(() => SeedFileSchema.parse(bad)).toThrow(/subdomain/);
+  });
 });
