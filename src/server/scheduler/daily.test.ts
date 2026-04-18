@@ -138,14 +138,14 @@ describe("rankDailyCandidates", () => {
     ).toMatchInlineSnapshot(`
       [
         {
-          "id": "c",
-          "priority": 5,
-          "reason": "blind_spot",
-        },
-        {
           "id": "b",
           "priority": 5,
           "reason": "due",
+        },
+        {
+          "id": "c",
+          "priority": 5,
+          "reason": "blind_spot",
         },
         {
           "id": "a",

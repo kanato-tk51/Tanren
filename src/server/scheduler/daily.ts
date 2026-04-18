@@ -68,7 +68,16 @@ export async function selectDailyCandidates(input: SelectDailyInput): Promise<Da
   });
 }
 
-/** DB 層から分離した純粋ロジック (テスト容易) */
+export const BLIND_SPOT_CANDIDATE_CAP = 2;
+
+/**
+ * DB 層から分離した純粋ロジック (テスト容易)。
+ * docs/06 §6.4.1 に準じて:
+ *   1. due (next_review <= now) を全件集める
+ *   2. blind_spot (未着手かつ prereqs 全 mastered) を最大 2 件集める
+ *      (user がまだ何も履修していない "bootstrap" 時は prereqs が空の concept を blind_spot 扱い)
+ *   3. [due, blind_spot] を合算して priority 降順で上位 count 件を返す
+ */
 export function rankDailyCandidates(params: {
   concepts: Concept[];
   masteries: Mastery[];
@@ -96,7 +105,6 @@ export function rankDailyCandidates(params: {
         });
       }
     } else {
-      // 未着手: prereqs を全て mastered なら blind_spot に入れる
       const prereqs = concept.prereqs ?? [];
       const prereqsSatisfied = prereqs.length === 0 || prereqs.every((id) => masteredIds.has(id));
       if (prereqsSatisfied) {
@@ -115,12 +123,10 @@ export function rankDailyCandidates(params: {
     }
   }
 
-  // blind_spot は最大 2 件に絞って (docs/06 §6.4.1 の SQL 例準拠)、残り枠は due で埋める
-  const blindTop = blindSpots
+  // blind_spot は最大 2 件にクランプしてから due と合算し、priority 降順で上位 count 件
+  const blindCapped = blindSpots
     .sort((a, b) => b.priority - a.priority)
-    .slice(0, Math.min(2, params.count));
-  const dueRemaining = Math.max(0, params.count - blindTop.length);
-  const dueTop = due.sort((a, b) => b.priority - a.priority).slice(0, dueRemaining);
-
-  return [...blindTop, ...dueTop].sort((a, b) => b.priority - a.priority);
+    .slice(0, BLIND_SPOT_CANDIDATE_CAP);
+  const pool = [...due, ...blindCapped].sort((a, b) => b.priority - a.priority);
+  return pool.slice(0, params.count);
 }
