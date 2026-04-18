@@ -94,18 +94,27 @@ describe("selectReviewCandidates", () => {
     expect(out.length).toBe(REVIEW_MAX_COUNT);
   });
 
-  it("SQL ビルダ呼び出しに where/groupBy/limit が揃い、userId / correct / since / count が injection されている", async () => {
+  it("SQL ビルダ: where/groupBy/limit が必要な引数で呼ばれる", async () => {
     queue.push(() => []);
-    await selectReviewCandidates({ userId: "u-42", count: 7 });
-    // attempts への 1 回目の select: where + groupBy + limit が必ず呼ばれる
+    const now = new Date("2026-04-18T00:00:00Z");
+    await selectReviewCandidates({ userId: "u-42", count: 7, days: 14, now });
+
     expect(whereSpy).toHaveBeenCalledTimes(1);
     expect(groupBySpy).toHaveBeenCalledTimes(1);
     expect(limitSpy).toHaveBeenCalledTimes(1);
-    // limit(count) は 7 を受け取るはず
+    // limit(count=7) を verify
     expect(limitSpy.mock.calls[0]?.[0]).toBe(7);
-    // where の第 1 引数は drizzle の and(...) 結合オブジェクト (非 string で bind 済み)
-    expect(whereSpy.mock.calls[0]?.[0]).toBeDefined();
-    expect(typeof whereSpy.mock.calls[0]?.[0]).not.toBe("string");
+
+    // where の第 1 引数は drizzle SQL 式オブジェクト (queryChunks を持つ)
+    const whereArg = whereSpy.mock.calls[0]?.[0] as { queryChunks?: unknown };
+    expect(whereArg).toBeDefined();
+    expect(whereArg.queryChunks).toBeDefined();
+
+    // groupBy(attempts.conceptId) の第 1 引数は drizzle column の PgColumn オブジェクト。
+    // column.name === 'concept_id' を検査して SQL フィールド名を固定。
+    const groupArg = groupBySpy.mock.calls[0]?.[0] as { name?: string };
+    expect(groupArg).toBeDefined();
+    expect(groupArg.name).toBe("concept_id");
   });
 
   it("max(timestamp) が string で返ってきても Date に正規化される (driver 差異対策)", async () => {

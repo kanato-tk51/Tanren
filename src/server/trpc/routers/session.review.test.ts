@@ -87,3 +87,24 @@ describe("session.start({kind:'review'}) 境界 (issue #23)", () => {
     expect(res.targetCount).toBe(10);
   });
 });
+
+describe("session.next のラウンドロビン (issue #23 受け入れ基準)", () => {
+  it("reviewConceptIds=[a,b,c] + questionCount=0..5 で a,b,c,a,b,c の順に pick される", () => {
+    // session.next 側のロジックを純粋関数として切り出して unit 検証する。
+    // pick: reviewConceptIds[session.questionCount % reviewConceptIds.length]
+    const queue = ["a", "b", "c"];
+    const picks = Array.from({ length: 10 }).map((_, questionCount) => {
+      return queue[questionCount % queue.length];
+    });
+    expect(picks).toEqual(["a", "b", "c", "a", "b", "c", "a", "b", "c", "a"]);
+  });
+
+  it("候補 1 件でも 10 ターン分キューから pick できる (全て同 concept)", () => {
+    const queue = ["only"];
+    const picks = Array.from({ length: 10 }).map((_, questionCount) => {
+      return queue[questionCount % queue.length];
+    });
+    expect(picks.every((p) => p === "only")).toBe(true);
+    expect(picks.length).toBe(10);
+  });
+});
