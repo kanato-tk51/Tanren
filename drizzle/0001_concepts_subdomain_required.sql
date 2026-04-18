@@ -1,0 +1,1 @@
+ALTER TABLE "concepts" ALTER COLUMN "subdomain_id" SET NOT NULL;

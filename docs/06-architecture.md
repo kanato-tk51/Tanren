@@ -41,43 +41,50 @@ Phase 5+ で追加:
 
 ### 6.2.1. テーブル一覧と役割
 
-| テーブル | 役割 |
-|---|---|
-| `users` | ユーザー情報、設定 |
-| `credentials` | Passkey クレデンシャル (ADR-0004) |
-| `sessions_auth` | 認証セッション (cookie) |
-| `webauthn_challenges` | Passkey 登録/認証時の一時チャレンジ |
-| `concepts` | 知識ツリーのマスタ |
-| `questions` | 生成済み問題のキャッシュ |
-| `sessions` | 学習セッション (Daily/Deep/Custom/Review) |
-| `attempts` | 1 問ごとの解答履歴 |
-| `mastery` | FSRS 状態 (user × concept) |
-| `misconceptions` | 誤概念トラッカー |
-| `session_templates` | Custom Session のテンプレ |
-| `daily_stats` | 日次集計キャッシュ |
-| `attempts_search` | 全文検索用 tsvector カラム付き view |
+| テーブル              | 役割                                      |
+| --------------------- | ----------------------------------------- |
+| `users`               | ユーザー情報、設定                        |
+| `credentials`         | Passkey クレデンシャル (ADR-0004)         |
+| `sessions_auth`       | 認証セッション (cookie)                   |
+| `webauthn_challenges` | Passkey 登録/認証時の一時チャレンジ       |
+| `concepts`            | 知識ツリーのマスタ                        |
+| `questions`           | 生成済み問題のキャッシュ                  |
+| `sessions`            | 学習セッション (Daily/Deep/Custom/Review) |
+| `attempts`            | 1 問ごとの解答履歴                        |
+| `mastery`             | FSRS 状態 (user × concept)                |
+| `misconceptions`      | 誤概念トラッカー                          |
+| `session_templates`   | Custom Session のテンプレ                 |
+| `daily_stats`         | 日次集計キャッシュ                        |
+| `attempts_search`     | 全文検索用 tsvector カラム付き view       |
 
 ### 6.2.2. スキーマ定義 (PostgreSQL 16+)
 
 ```sql
 -- 知識ツリー
--- domain は TypeScript 側の const enum (13 ドメイン) でハードコード管理。
--- domains テーブルは作らない (マスタが YAML なので二重管理を避ける)。
+-- domain の真実の源は docs/02-learning-system.md §2.1.1。TypeScript 側は
+-- src/db/schema/_constants.ts の DOMAIN_IDS として const enum 化する。
+-- concept は:
+--   * 設計の真実の源 (意図・名前・難易度の根拠): docs/10-taxonomy-seed.md
+--   * 実行時のマスタ (DB への投入ソース): src/db/seed/concepts.yaml
+-- domains テーブルは作らない (二重管理を避ける)。
 CREATE TABLE concepts (
   id TEXT PRIMARY KEY,              -- 'network.tcp.congestion'
   domain_id TEXT NOT NULL,
-  subdomain_id TEXT,
+  subdomain_id TEXT NOT NULL,
   name TEXT NOT NULL,
   description TEXT,
   prereqs JSONB DEFAULT '[]'::jsonb,
   tags JSONB DEFAULT '[]'::jsonb,
-  difficulty_levels JSONB DEFAULT '[]'::jsonb,  -- 6段階のサブセット
+  difficulty_levels JSONB NOT NULL,  -- 6段階のサブセット。NOT NULL + 下の CHECK で 1 件以上を強制 (DEFAULT は置かず、省略は insert エラーにする)
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_concepts_domain ON concepts(domain_id);
 CREATE INDEX idx_concepts_tags ON concepts USING GIN (tags);
+-- 3 階層固定ルール + 出題可能性の DB 側不変条件
+ALTER TABLE concepts ADD CONSTRAINT concepts_difficulty_levels_nonempty_chk
+  CHECK (jsonb_typeof(difficulty_levels) = 'array' AND jsonb_array_length(difficulty_levels) >= 1);
 
 -- ユーザー (個人用途のため事実上 1 行のみ)
 CREATE TABLE users (
@@ -351,23 +358,29 @@ settings.update({ ... })
 ```typescript
 function selectDailyCandidates(userId: string, count: number): Concept[] {
   // 1. next_review <= now の concept
-  const due = query(`
+  const due = query(
+    `
     SELECT c.*, m.stability, m.lapse_count
     FROM mastery m
     JOIN concepts c ON m.concept_id = c.id
     WHERE m.user_id = ? AND m.next_review <= ?
     ORDER BY m.next_review ASC
-  `, [userId, Date.now()]);
+  `,
+    [userId, Date.now()],
+  );
 
   // 2. Blind spots (prereq 全て習得済 & 未着手)
-  const blindSpots = query(`
+  const blindSpots = query(
+    `
     SELECT c.*
     FROM concepts c
     LEFT JOIN mastery m ON m.concept_id = c.id AND m.user_id = ?
     WHERE m.review_count IS NULL
       AND prereqs_satisfied(c, ?)
     LIMIT 2
-  `, [userId, userId]);
+  `,
+    [userId, userId],
+  );
 
   // 3. 優先度付けして上位 N 件返す
   return prioritize([...due, ...blindSpots], count);
@@ -394,41 +407,41 @@ function priority(concept: Concept, mastery: Mastery): number {
 
 ### 6.5.1. MVP 採用
 
-| レイヤ | 採用技術 | 理由 |
-|---|---|---|
-| Framework | **Next.js 15 (App Router)** | SSR/ISR 柔軟、Route Handlers で API 統合 |
-| Language | **TypeScript (strict)** | 型安全 |
-| Runtime | **Node.js 22 LTS** | Vercel デフォルト、安定運用 |
-| パッケージ管理 | **pnpm 10.x** | ADR-0002 |
-| DB | **Neon (PostgreSQL 16+)** | ADR-0003。Vercel 公式統合、tsvector/GIN による FTS |
-| DB ドライバ | **`@neondatabase/serverless`** | HTTP fetch 経由、Edge runtime 互換 |
-| ORM | **Drizzle (pg dialect)** | 型安全、マイグレーション直感的 |
-| API | **tRPC** | 型安全 RPC |
-| Auth | **Passkey (WebAuthn)** — `@simplewebauthn/server` + `/browser` | ADR-0004。パスワード / OAuth 併設しない |
-| LLM | **OpenAI API (`gpt-5` / `gpt-5-mini`)** | ADR-0005 |
-| UI | **shadcn/ui + Tailwind** | 短時間で整った UI |
-| Code Editor | **CodeMirror 6** | 軽量、モバイル可 |
-| Charts (Phase 2+) | **Recharts** | MVP はテキスト表のみ |
-| State | **TanStack Query + Zustand** | サーバー状態 + UI 状態 |
-| URL 状態 | **nuqs** | フィルタなどの URL 同期 |
-| i18n | 日本語のみ | スコープ絞る |
-| PWA | **Serwist** | Service Worker 統合 |
-| Deploy | **Vercel Hobby** | Next.js と Neon の連携が公式 |
-| 監視 | **Sentry (Free tier)** | エラー追跡 |
-| テスト | **Vitest** | unit/integration |
-| メール (Phase 3+) | **Resend** | Weekly Digest / reminder |
+| レイヤ            | 採用技術                                                       | 理由                                               |
+| ----------------- | -------------------------------------------------------------- | -------------------------------------------------- |
+| Framework         | **Next.js 15 (App Router)**                                    | SSR/ISR 柔軟、Route Handlers で API 統合           |
+| Language          | **TypeScript (strict)**                                        | 型安全                                             |
+| Runtime           | **Node.js 22 LTS**                                             | Vercel デフォルト、安定運用                        |
+| パッケージ管理    | **pnpm 10.x**                                                  | ADR-0002                                           |
+| DB                | **Neon (PostgreSQL 16+)**                                      | ADR-0003。Vercel 公式統合、tsvector/GIN による FTS |
+| DB ドライバ       | **`@neondatabase/serverless`**                                 | HTTP fetch 経由、Edge runtime 互換                 |
+| ORM               | **Drizzle (pg dialect)**                                       | 型安全、マイグレーション直感的                     |
+| API               | **tRPC**                                                       | 型安全 RPC                                         |
+| Auth              | **Passkey (WebAuthn)** — `@simplewebauthn/server` + `/browser` | ADR-0004。パスワード / OAuth 併設しない            |
+| LLM               | **OpenAI API (`gpt-5` / `gpt-5-mini`)**                        | ADR-0005                                           |
+| UI                | **shadcn/ui + Tailwind**                                       | 短時間で整った UI                                  |
+| Code Editor       | **CodeMirror 6**                                               | 軽量、モバイル可                                   |
+| Charts (Phase 2+) | **Recharts**                                                   | MVP はテキスト表のみ                               |
+| State             | **TanStack Query + Zustand**                                   | サーバー状態 + UI 状態                             |
+| URL 状態          | **nuqs**                                                       | フィルタなどの URL 同期                            |
+| i18n              | 日本語のみ                                                     | スコープ絞る                                       |
+| PWA               | **Serwist**                                                    | Service Worker 統合                                |
+| Deploy            | **Vercel Hobby**                                               | Next.js と Neon の連携が公式                       |
+| 監視              | **Sentry (Free tier)**                                         | エラー追跡                                         |
+| テスト            | **Vitest**                                                     | unit/integration                                   |
+| メール (Phase 3+) | **Resend**                                                     | Weekly Digest / reminder                           |
 
 ### 6.5.2. 意図的に MVP で入れないもの
 
-| 技術 | 入れない理由 | 再検討タイミング |
-|---|---|---|
-| Upstash Redis | 1 ユーザーで rate limit 不要 | 公開時 or 並列ユーザー発生時 |
-| PostHog | Insights 画面で代用 | 公開時 |
-| Logtail | Sentry + Vercel ログで十分 | ログ量増加時 |
-| Web Push | iOS PWA 制約 (`7.5.5`) | Phase 5+ |
-| `gpt-5` with high reasoning | コスト高、MVP は通常推論で足りる | Phase 2+ |
-| Judge0 (コード実行) | MVP 対象外 | Phase 6 |
-| OAuth (Google / GitHub) | Passkey 一本 (ADR-0004) | 公開時 |
+| 技術                        | 入れない理由                     | 再検討タイミング             |
+| --------------------------- | -------------------------------- | ---------------------------- |
+| Upstash Redis               | 1 ユーザーで rate limit 不要     | 公開時 or 並列ユーザー発生時 |
+| PostHog                     | Insights 画面で代用              | 公開時                       |
+| Logtail                     | Sentry + Vercel ログで十分       | ログ量増加時                 |
+| Web Push                    | iOS PWA 制約 (`7.5.5`)           | Phase 5+                     |
+| `gpt-5` with high reasoning | コスト高、MVP は通常推論で足りる | Phase 2+                     |
+| Judge0 (コード実行)         | MVP 対象外                       | Phase 6                      |
+| OAuth (Google / GitHub)     | Passkey 一本 (ADR-0004)          | 公開時                       |
 
 ### 6.5.3. メモ
 
@@ -583,14 +596,14 @@ Tanren/
 
 ### 6.8a.1. 必ず書く (MVP)
 
-| 対象 | テスト種別 | ツール |
-|---|---|---|
-| FSRS スケジューラ (`ts-fsrs` ラッパ) | unit | Vitest |
-| Daily Drill 優先度計算 | unit | Vitest |
-| マスタリー計算式 | unit | Vitest |
-| NL → CustomSessionSpec パーサ (出力JSON の妥当性検証) | unit + contract | Vitest + Zod |
-| 採点プロンプトの回帰 | snapshot | Vitest + LLM 実呼出 (手動 opt-in) |
-| tRPC ルータの型整合 | tsc | TypeScript strict |
+| 対象                                                  | テスト種別      | ツール                            |
+| ----------------------------------------------------- | --------------- | --------------------------------- |
+| FSRS スケジューラ (`ts-fsrs` ラッパ)                  | unit            | Vitest                            |
+| Daily Drill 優先度計算                                | unit            | Vitest                            |
+| マスタリー計算式                                      | unit            | Vitest                            |
+| NL → CustomSessionSpec パーサ (出力JSON の妥当性検証) | unit + contract | Vitest + Zod                      |
+| 採点プロンプトの回帰                                  | snapshot        | Vitest + LLM 実呼出 (手動 opt-in) |
+| tRPC ルータの型整合                                   | tsc             | TypeScript strict                 |
 
 ### 6.8a.2. 書かない (MVP)
 
@@ -612,16 +625,16 @@ Tanren/
 
 ### 6.9.1. MVP
 
-| レイヤ | ツール |
-|---|---|
-| エラー | Sentry (Free tier) |
-| ログ | Vercel Logs (直近 1h)、必要なときだけ tail |
+| レイヤ       | ツール                                                                     |
+| ------------ | -------------------------------------------------------------------------- |
+| エラー       | Sentry (Free tier)                                                         |
+| ログ         | Vercel Logs (直近 1h)、必要なときだけ tail                                 |
 | LLM トレース | 独自ログ (prompt_version, 生成/採点結果を `attempts` / `questions` に記録) |
 
 ### 6.9.2. Phase 5+ で追加検討
 
-| レイヤ | ツール |
-|---|---|
-| プロダクト分析 | PostHog (公開時のみ) |
-| パフォーマンス | Vercel Analytics |
-| 長期ログ保存 | Logtail (ログ量が増えてから) |
+| レイヤ         | ツール                       |
+| -------------- | ---------------------------- |
+| プロダクト分析 | PostHog (公開時のみ)         |
+| パフォーマンス | Vercel Analytics             |
+| 長期ログ保存   | Logtail (ログ量が増えてから) |

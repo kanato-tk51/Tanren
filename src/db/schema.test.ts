@@ -7,6 +7,7 @@ import {
   type DailyStat,
   type Mastery,
   type Misconception,
+  type NewConcept,
   type NewUser,
   type Question,
   type Session,
@@ -41,10 +42,16 @@ describe("db/schema", () => {
     expectTypeOf<NewUser["createdAt"]>().toEqualTypeOf<Date | undefined>();
   });
 
+  it("NewConcept.difficultyLevels は default を持たず省略不可 (1 件以上を型でも強制)", () => {
+    expectTypeOf<NewConcept["difficultyLevels"]>().toEqualTypeOf<
+      (typeof DIFFICULTY_LEVELS)[number][]
+    >();
+  });
+
   it("concepts は DomainId でドメインを限定", () => {
     expectTypeOf<Concept["domainId"]>().toEqualTypeOf<(typeof DOMAIN_IDS)[number]>();
     expectTypeOf<Concept["difficultyLevels"]>().toEqualTypeOf<
-      (typeof DIFFICULTY_LEVELS)[number][] | null
+      (typeof DIFFICULTY_LEVELS)[number][]
     >();
     expectTypeOf<Concept["prereqs"]>().toEqualTypeOf<string[] | null>();
   });
