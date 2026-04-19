@@ -115,10 +115,15 @@ export async function findDeficitCombos(params?: { now?: Date }): Promise<Combo[
       if (b.deficit !== a.deficit) return b.deficit - a.deficit;
       if (a.combo.conceptId !== b.combo.conceptId)
         return a.combo.conceptId.localeCompare(b.combo.conceptId);
-      if (a.combo.difficulty !== b.combo.difficulty)
-        return a.combo.difficulty.localeCompare(b.combo.difficulty);
-      // thinkingStyle tie-break で完全決定論 (Codex Round 3 指摘: 同 conceptId/difficulty 内の
-      // 順序が実装依存にならないようにする)
+      // difficulty は DIFFICULTY_LEVELS の定義順 (beginner→principal) で並べる
+      // (Codex Round 4 指摘: localeCompare だとアルファベット順で rank と乖離)。
+      if (a.combo.difficulty !== b.combo.difficulty) {
+        return (
+          (DIFFICULTY_LEVELS as readonly string[]).indexOf(a.combo.difficulty) -
+          (DIFFICULTY_LEVELS as readonly string[]).indexOf(b.combo.difficulty)
+        );
+      }
+      // thinkingStyle tie-break で完全決定論 (Codex Round 3 指摘)
       return (a.combo.thinkingStyle ?? "").localeCompare(b.combo.thinkingStyle ?? "");
     })
     .map((x) => x.combo);

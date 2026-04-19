@@ -68,6 +68,27 @@ describe("findDeficitCombos", () => {
     ]);
   });
 
+  it("tie-break: 同 conceptId / 同 difficulty なら thinkingStyle.localeCompare で how < trade_off < why", async () => {
+    queue.push(() => [{ id: "a", difficultyLevels: ["junior"] }]);
+    queue.push(() => []); // 全 combo count=0 → deficit=5 で同値
+    const out = await findDeficitCombos();
+    expect(out.map((c) => c.thinkingStyle)).toEqual(["how", "trade_off", "why"]);
+  });
+
+  it("tie-break: 同 conceptId / 同 thinkingStyle なら DIFFICULTY_LEVELS 順 (junior < mid)", async () => {
+    // concept "a" で junior / mid 両方が全 style 不足 → 6 combos 同 deficit=5
+    queue.push(() => [{ id: "a", difficultyLevels: ["mid", "junior"] }]);
+    queue.push(() => []);
+    const out = await findDeficitCombos();
+    const first3 = out.slice(0, 3);
+    const last3 = out.slice(3);
+    // DIFFICULTY_LEVELS 順: junior が mid より先
+    expect(first3.every((c) => c.difficulty === "junior")).toBe(true);
+    expect(last3.every((c) => c.difficulty === "mid")).toBe(true);
+    expect(first3.map((c) => c.thinkingStyle)).toEqual(["how", "trade_off", "why"]);
+    expect(last3.map((c) => c.thinkingStyle)).toEqual(["how", "trade_off", "why"]);
+  });
+
   it("全 combo が target 以上なら空配列", async () => {
     queue.push(() => [{ id: "a", difficultyLevels: ["junior"] }]);
     queue.push(() => [
