@@ -1,15 +1,8 @@
-import { redirect } from "next/navigation";
-
 import { InsightsOverviewScreen } from "@/features/insights/overview-screen";
-import { getCurrentUser } from "@/server/auth/session";
 
 export const dynamic = "force-dynamic";
 
-export default async function InsightsPage() {
-  const user = await getCurrentUser();
-  if (!user) {
-    redirect("/login");
-  }
+export default function InsightsPage() {
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-8">
       <InsightsOverviewScreen />

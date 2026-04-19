@@ -11,9 +11,11 @@ function isDomainId(v: string): v is DomainId {
 }
 
 export default async function DeepDivePage({ params }: { params: Promise<{ domain: string }> }) {
+  // auth 判定と /login redirect は (app)/layout.tsx で既に済んでいる。ここでは
+  // onboarding 未完了の追加チェックだけを行う (React.cache で DB round-trip は layout と
+  // 合算しても 1 回)。
   const user = await getCurrentUser();
-  if (!user) redirect("/login");
-  if (!user.onboardingCompletedAt) redirect("/onboarding");
+  if (user && !user.onboardingCompletedAt) redirect("/onboarding");
 
   const { domain } = await params;
   if (!isDomainId(domain)) notFound();
