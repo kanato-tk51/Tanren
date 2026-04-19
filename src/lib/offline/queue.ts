@@ -64,20 +64,25 @@ function openDb(): Promise<IDBDatabase> {
       return;
     }
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (event) => {
       const db = req.result;
-      // v1 で作られた旧 store (keyPath=clientId) は FIFO 保証できないため一度削除して
-      // autoIncrement primary key の新構造で作り直す。本 PR 時点で enqueue caller は
-      // 未配線 (queue は常に空) なので既存ユーザーのデータは実質失われない。
-      if (db.objectStoreNames.contains(STORE_SUBMITS)) {
-        db.deleteObjectStore(STORE_SUBMITS);
+      const oldVersion = event.oldVersion;
+      // v1 → v2: 旧 store (keyPath=clientId) を捨てて autoIncrement primary key の
+      // 新構造で作り直す。v1 は enqueue caller 未配線で queue は空のためデータロスなし。
+      // それ以外 (v0 → v2 の新規 install) は素朴に create。
+      // v2 以降の migration を入れる場合は elif を追加して既存データを保持すること
+      // (Codex Round 14 指摘: 無条件 delete だと queue が毎回全消去される)。
+      if (oldVersion < 2) {
+        if (db.objectStoreNames.contains(STORE_SUBMITS)) {
+          db.deleteObjectStore(STORE_SUBMITS);
+        }
+        const store = db.createObjectStore(STORE_SUBMITS, {
+          keyPath: "sequence",
+          autoIncrement: true,
+        });
+        // removeSubmit / incrementRetryOrRemove から clientId で引くためのセカンダリ index。
+        store.createIndex(IDX_CLIENT_ID, "clientId", { unique: true });
       }
-      const store = db.createObjectStore(STORE_SUBMITS, {
-        keyPath: "sequence",
-        autoIncrement: true,
-      });
-      // removeSubmit / incrementRetryOrRemove から clientId で引くためのセカンダリ index。
-      store.createIndex(IDX_CLIENT_ID, "clientId", { unique: true });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error ?? new Error("IndexedDB open failed"));
