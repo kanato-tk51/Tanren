@@ -17,7 +17,11 @@ export function SettingsScreen() {
 
   // 取得失敗 / ロード中は null を区別、誤操作を防ぐ (Codex Round 2 指摘 #2)
   const enabled = settings.data?.weeklyDigestEnabled ?? null;
-  const canToggle = enabled !== null && !settings.isError;
+  // email が無いユーザーは Weekly Digest を送れないので UI でも disabled にする
+  // (Codex PR#86 Round 2 指摘 #2)。サーバー側 (`setWeeklyDigestEnabled`) でも
+  // BAD_REQUEST で弾いているが、UI 表示を一致させる。
+  const emailAvailable = settings.data?.emailAvailable ?? true;
+  const canToggle = enabled !== null && !settings.isError && emailAvailable;
 
   async function onToggle() {
     if (enabled === null) return;
@@ -44,6 +48,12 @@ export function SettingsScreen() {
             </div>
             <div className="text-muted-foreground text-xs">
               毎週日曜 09:00 JST に先週の学習サマリをメール配信 (issue #36)
+              {!emailAvailable && (
+                <span className="text-destructive mt-1 block">
+                  メールアドレスが未設定のため利用できません。GitHub の公開 email または primary
+                  email を取得できていません。
+                </span>
+              )}
             </div>
           </div>
           <Button

@@ -91,6 +91,10 @@ async function main() {
       githubUserId,
       displayName: displayName ?? null,
       email: email ?? null,
+      // email が無いと Weekly Digest は実質送れないので、digest は OFF で作成する
+      // (opt-in 扱い)。後で callback が email を補完しても、本人が意思決定せずに
+      // 配信が始まるのを避ける (Codex PR#86 Round 2 指摘 #1)。
+      weeklyDigestEnabled: Boolean(email),
     })
     .returning();
 

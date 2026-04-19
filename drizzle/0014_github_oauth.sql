@@ -12,5 +12,10 @@ ALTER TABLE "users"
   ADD COLUMN "github_user_id" bigint UNIQUE,
   ADD COLUMN "github_login" text;
 
+-- Weekly Digest は users.email が必須。email IS NULL の既存行では既存の
+-- weekly_digest_enabled=true はサイレントに配信対象外になるため、明示的に
+-- false に揃えておく (Codex PR#86 Round 2 指摘 #1)。
+UPDATE "users" SET "weekly_digest_enabled" = false WHERE "email" IS NULL;
+
 DROP TABLE IF EXISTS "webauthn_challenges";
 DROP TABLE IF EXISTS "credentials";
