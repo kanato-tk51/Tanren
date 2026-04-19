@@ -12,6 +12,7 @@ export const authRouter = router({
         id: ctx.user.id,
         email: ctx.user.email,
         displayName: ctx.user.displayName,
+        githubLogin: ctx.user.githubLogin,
         dailyGoal: ctx.user.dailyGoal,
       },
     };

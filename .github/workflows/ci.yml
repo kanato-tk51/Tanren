@@ -58,12 +58,12 @@ jobs:
       - name: Build
         if: steps.has_pkg.outputs.present == 'true'
         env:
-          # CI ビルド通過用のダミー
+          # CI ビルド通過用のダミー (ADR-0006: GitHub OAuth に移行)
           DATABASE_URL: postgresql://dummy:dummy@localhost/dummy?sslmode=disable
           OPENAI_API_KEY: sk-dummy
-          WEBAUTHN_RP_ID: localhost
-          WEBAUTHN_RP_NAME: Tanren
-          WEBAUTHN_ORIGIN: http://localhost:3000
+          GITHUB_CLIENT_ID: dummy
+          GITHUB_CLIENT_SECRET: dummy
+          GITHUB_ALLOWED_USER_ID: "1"
           SESSION_COOKIE_SECRET: 00000000000000000000000000000000
           NEXT_PUBLIC_APP_URL: http://localhost:3000
         run: pnpm build

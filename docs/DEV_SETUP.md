@@ -21,9 +21,13 @@
 - [OpenAI](https://platform.openai.com/) — API キー取得、**Settings → Limits で Usage limit を $20/月**に設定
 - [Sentry](https://sentry.io/) — Next.js プロジェクト 1 個
 - [Vercel](https://vercel.com/) — Hobby、Git 連携 + Neon integration を有効化
-
-> Passkey 認証のためのパスワード管理サービスは**不要**。
-> 作者端末の iCloud Keychain / Google Password Manager で Passkey を同期する前提。
+- **GitHub OAuth App** (ADR-0006) — GitHub の Settings → Developer settings → OAuth Apps → New OAuth App:
+  - Application name: `Tanren (dev)` / `Tanren (preview)` / `Tanren (prod)` を環境ごとに分ける
+  - Authorization callback URL: それぞれ
+    - dev: `http://localhost:3000/api/auth/github/callback`
+    - preview: `https://<your-vercel-preview>.vercel.app/api/auth/github/callback`
+    - prod: `https://<your-prod-domain>/api/auth/github/callback`
+  - Client ID / Client Secret を `.env` / Vercel env に投入する (§1.3)
 
 ### 1.3. 環境変数
 
@@ -58,8 +62,8 @@ pnpm create next-app@latest . \
   --import-alias "@/*"
 
 # 初期依存を追加 (MVP 必須)
+# ADR-0006: GitHub OAuth は素の fetch + zod で実装するため @simplewebauthn 系は不要
 pnpm add openai \
-         @simplewebauthn/server @simplewebauthn/browser \
          @neondatabase/serverless drizzle-orm drizzle-zod \
          @trpc/server @trpc/client @trpc/react-query @trpc/next \
          @tanstack/react-query zod ts-fsrs nuqs zustand \
@@ -160,7 +164,7 @@ feat/xxx ─PR→ main ─自動→ Vercel Preview   (Neon: ephemeral branch)
 3. **Settings → Environment Variables** に `.env.example` のキーを登録
    - `Production` / `Preview` / `Development` の 3 env に分けて入れる
    - `DATABASE_URL` は Production のみ実値、Preview は Neon Integration が自動注入 (後述)
-   - `WEBAUTHN_RP_ID` / `WEBAUTHN_ORIGIN` / `NEXT_PUBLIC_APP_URL` は env ごとに変える
+   - `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` / `GITHUB_ALLOWED_USER_ID` / `NEXT_PUBLIC_APP_URL` は env ごとに別値 (OAuth App も env ごとに分けて callback URL を登録する)
 4. **Integrations → Neon** を有効化
    - Vercel Project と Neon Project を接続
    - 「Automatic database branching for previews」を **ON**
@@ -217,7 +221,7 @@ pnpm dev       # 実体は `vercel dev`
 pnpm db:migrate       # 内部で ./scripts/with-vercel-env.sh 経由
 pnpm db:seed
 pnpm db:studio
-pnpm auth:bootstrap
+pnpm auth:bootstrap <github_user_id> [displayName] [email]   # ADR-0006: GitHub user id で紐付け
 ```
 
 このラッパは:
@@ -268,14 +272,15 @@ PR テンプレートのチェックを埋めて、CI が緑なら self-approve 
 
 ## 7. トラブルシュート
 
-| 症状                                                                           | 対処                                                         |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------------ |
-| `pnpm install` が遅い                                                          | `.pnpm-store` の場所を SSD に (`pnpm config set store-dir`)  |
-| CI がずっと skip                                                               | Phase 0 前は `package.json` が無いため意図通り。Day 1 で解消 |
-| Passkey がブラウザで動かない                                                   | `WEBAUTHN_RP_ID` と `WEBAUTHN_ORIGIN` が一致しているか確認   |
-| Neon で `SSL required`                                                         | 接続文字列の末尾に `?sslmode=require` を付ける               |
-| OpenAI `rate_limit`                                                            | Usage limit に到達していないか確認、モデル/Tier を見直す     |
-| `pnpm install` で `lefthook install` が `core.hooksPath is set locally` で失敗 | 下記 **7.1 を参照** (issue #45)                              |
+| 症状                                                                           | 対処                                                                         |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `pnpm install` が遅い                                                          | `.pnpm-store` の場所を SSD に (`pnpm config set store-dir`)                  |
+| CI がずっと skip                                                               | Phase 0 前は `package.json` が無いため意図通り。Day 1 で解消                 |
+| `/login?error=forbidden` が出る                                                | `GITHUB_ALLOWED_USER_ID` と自分の GitHub user id が一致するか確認 (ADR-0006) |
+| `/login?error=not_bootstrapped`                                                | `pnpm auth:bootstrap <github_user_id>` を先に実行する                        |
+| Neon で `SSL required`                                                         | 接続文字列の末尾に `?sslmode=require` を付ける                               |
+| OpenAI `rate_limit`                                                            | Usage limit に到達していないか確認、モデル/Tier を見直す                     |
+| `pnpm install` で `lefthook install` が `core.hooksPath is set locally` で失敗 | 下記 **7.1 を参照** (issue #45)                                              |
 
 ### 7.1. `core.hooksPath` 衝突で `lefthook install` が失敗する場合
 

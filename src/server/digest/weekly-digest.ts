@@ -63,21 +63,26 @@ export async function collectWeeklyDigestTargets(now: Date = new Date()): Promis
         sql`EXISTS (SELECT 1 FROM ${sessionsAuth} AS sa WHERE sa.user_id = ${users.id} AND sa.last_active_at >= ${activeSince})`,
         sql`${users.onboardingCompletedAt} IS NOT NULL`,
         eq(users.weeklyDigestEnabled, true),
+        // GitHub OAuth 以降 email は任意。送信先がないユーザーは digest 対象外 (ADR-0006)
+        sql`${users.email} IS NOT NULL`,
       ),
     )
     .groupBy(users.id, users.email, users.displayName);
 
-  return rows.map((r) => {
+  return rows.flatMap((r) => {
+    if (r.email === null) return [];
     const ms = typeof r.studyTimeMs === "string" ? Number(r.studyTimeMs) : r.studyTimeMs;
-    return {
-      userId: r.userId,
-      email: r.email,
-      displayName: r.displayName,
-      attemptCount: r.attemptCount ?? 0,
-      correctCount: r.correctCount ?? 0,
-      studyTimeMin: Math.round((ms / 60000) * 10) / 10,
-      conceptsTouched: r.conceptsTouched ?? 0,
-    };
+    return [
+      {
+        userId: r.userId,
+        email: r.email,
+        displayName: r.displayName,
+        attemptCount: r.attemptCount ?? 0,
+        correctCount: r.correctCount ?? 0,
+        studyTimeMin: Math.round((ms / 60000) * 10) / 10,
+        conceptsTouched: r.conceptsTouched ?? 0,
+      },
+    ];
   });
 }
 

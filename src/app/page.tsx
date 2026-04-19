@@ -20,6 +20,7 @@ export default async function Home() {
                 id: initialUser.id,
                 email: initialUser.email,
                 displayName: initialUser.displayName,
+                githubLogin: initialUser.githubLogin,
                 dailyGoal: initialUser.dailyGoal,
               }
             : null

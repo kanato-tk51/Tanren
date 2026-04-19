@@ -1,8 +1,7 @@
 "use client";
 
-import { startAuthentication } from "@simplewebauthn/browser";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { LogIn } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -14,78 +13,42 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-/**
- * Passkey 認証 UI の最小セット。
- * - Passkey 有効環境: `startAuthentication` を叩いて cookie を発行
- * - Passkey 無効環境 (Preview / 作者 dev): `/api/auth/dev-login` でユーザー 1 名自動ログイン
- */
-export function LoginForm({ showDevShortcut = false }: { showDevShortcut?: boolean }) {
-  const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+/** OAuth callback が /login?error=... にリダイレクトしてくるケースを想定した短い訳語。
+ *  コード内部値は src/app/api/auth/github/callback/route.ts の errorRedirect に合わせる。 */
+const ERROR_MESSAGES: Record<string, string> = {
+  invalid_request: "不正なリクエストです。もう一度ログインしてください。",
+  state_expired: "ログイン状態が期限切れになりました。もう一度お試しください。",
+  state_mismatch: "セキュリティ検証に失敗しました。別タブでログインしていた場合は閉じてください。",
+  server_misconfigured: "サーバー側の環境変数が未設定です (管理者に連絡)。",
+  token_exchange_failed: "GitHub とのトークン交換に失敗しました。",
+  user_fetch_failed: "GitHub ユーザー情報の取得に失敗しました。",
+  forbidden: "この GitHub アカウントはこのアプリにアクセスできません。",
+  not_bootstrapped: "ユーザーの初期設定が済んでいません (pnpm auth:bootstrap を実行)。",
+};
 
-  async function handlePasskey() {
-    setError(null);
-    setLoading(true);
-    try {
-      const optionsRes = await fetch("/api/auth/authenticate/options", { method: "POST" });
-      if (!optionsRes.ok) throw new Error(await optionsRes.text());
-      const { options, challengeId } = (await optionsRes.json()) as {
-        options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
-        challengeId: string;
-      };
-      const response = await startAuthentication({ optionsJSON: options });
-      const verifyRes = await fetch("/api/auth/authenticate/verify", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ challengeId, response }),
-      });
-      if (!verifyRes.ok) throw new Error(await verifyRes.text());
-      router.push("/");
-      router.refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Passkey login failed");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleDevLogin() {
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await fetch("/api/auth/dev-login", { method: "POST" });
-      if (!res.ok) {
-        const body = await res.text();
-        throw new Error(body || "dev login refused");
-      }
-      router.push("/");
-      router.refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "dev login failed");
-    } finally {
-      setLoading(false);
-    }
-  }
+/** GitHub OAuth 認証 UI (ADR-0006)。
+ *  `/api/auth/github/login` にジャンプするだけ。セッション管理は callback 側。 */
+export function LoginForm() {
+  const searchParams = useSearchParams();
+  const errorCode = searchParams.get("error");
+  const errorMessage = errorCode ? (ERROR_MESSAGES[errorCode] ?? `Error: ${errorCode}`) : null;
 
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
         <CardTitle>ログイン</CardTitle>
-        <CardDescription>Passkey でサインインします。</CardDescription>
+        <CardDescription>GitHub アカウントでサインインします。</CardDescription>
       </CardHeader>
-      <CardContent className="text-muted-foreground space-y-2 text-sm">
-        {error && <div className="text-destructive">{error}</div>}
+      <CardContent className="text-muted-foreground text-sm">
+        {errorMessage && <div className="text-destructive">{errorMessage}</div>}
       </CardContent>
-      <CardFooter className="flex flex-col gap-2 sm:flex-row">
-        <Button onClick={handlePasskey} disabled={loading}>
-          {loading ? "通信中…" : "Passkey でログイン"}
+      <CardFooter>
+        <Button asChild>
+          <a href="/api/auth/github/login">
+            <LogIn className="mr-2 h-4 w-4" />
+            GitHub でログイン
+          </a>
         </Button>
-        {showDevShortcut && (
-          <Button variant="outline" onClick={handleDevLogin} disabled={loading}>
-            Dev ショートカット
-          </Button>
-        )}
       </CardFooter>
     </Card>
   );

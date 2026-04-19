@@ -9,7 +9,7 @@
 ### 7.1.1. 「2 タップで問題開始」
 
 - 通知 / ホーム画面アイコン → ホーム画面 → Drill カードタップ → 即出題
-- ログイン画面を挟まない (Passkey 認証後の HTTP-only cookie で自動継続、ADR-0004)
+- ログイン画面を挟まない (GitHub OAuth 認証後の HTTP-only cookie で自動継続、ADR-0006)
 - スプラッシュ画面は最小限
 
 ### 7.1.2. 「片手操作」
@@ -464,7 +464,7 @@ Streak at risk は **やらない** (Streak 自体を出さない方針)。
 ### フロー
 
 ```
-[Passkey 登録 (初回のみ、`navigator.credentials.create()`)]
+[GitHub でログイン (初回は bootstrap 済みの github_user_id が必要、ADR-0006)]
     ↓
 [ウェルカム画面: 3 枚]
   1. 「AI がエンジニアのための問題を出します」
@@ -498,8 +498,8 @@ Streak at risk は **やらない** (Streak 自体を出さない方針)。
 - 自己申告レベルは `staff` / `principal` を MVP 対象外 (seed の concept レンジが mid 中心で
   当たりが 0 件になり診断テストが成立しないため、MVP では `beginner..senior` の 4 段階)。
 
-個人用途なので「新規登録」UI は**作らない**。初期 user 行は `pnpm run auth:bootstrap` で 1 回だけ作成し、
-以降は Passkey 登録 → ログインの繰り返し。
+個人用途なので「新規登録」UI は**作らない**。初期 user 行は `pnpm auth:bootstrap <github_user_id>` で 1 回だけ作成し、
+以降は GitHub ログインの繰り返し (ADR-0006)。
 
 ---
 

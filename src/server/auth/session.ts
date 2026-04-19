@@ -9,8 +9,7 @@ import { cache } from "react";
 import { getDb } from "@/db/client";
 import { sessionsAuth, users, type User } from "@/db/schema";
 
-import { isDevShortcutAvailable } from "./capabilities";
-import { DEV_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "./constants";
+import { SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "./constants";
 
 export type CookieStore = ReadonlyRequestCookies | Awaited<ReturnType<typeof cookies>>;
 
@@ -19,8 +18,6 @@ type SessionResolution = {
   sessionId: string;
   /** resolve 時に延長された expiresAt。cookie の再発行に使う */
   expiresAt: Date;
-  /** dev (non __Host-) セッションか、Passkey (__Host-) セッションか */
-  kind: "passkey" | "dev";
 };
 
 /** `sessions_auth` に新しい行を作り、cookie attribute を返す */
@@ -53,19 +50,12 @@ export async function createSession(userId: string): Promise<{
 
 /**
  * cookie 経由で session を取得。30 日 sliding expiry の更新も担当。
- * Passkey (__Host-) と dev ショートカット両方をチェック。
+ * ADR-0006 以降は GitHub OAuth の `__Host-tanren_session` cookie 1 本のみを見る。
  * 呼び出し元は返却された `expiresAt` を使って cookie を再発行すること。
  */
 export async function resolveSession(store: CookieStore): Promise<SessionResolution | null> {
-  const passkeyId = store.get(SESSION_COOKIE_NAME)?.value ?? null;
-  // dev cookie は「dev ショートカットが許可された環境」でのみ受理する。
-  // pre-production で発行された cookie を self-host 本番に持ち込まれるバイパス対策。
-  const devId = isDevShortcutAvailable()
-    ? (store.get(DEV_SESSION_COOKIE_NAME)?.value ?? null)
-    : null;
-  const sessionId = passkeyId ?? devId;
+  const sessionId = store.get(SESSION_COOKIE_NAME)?.value ?? null;
   if (!sessionId) return null;
-  const kind: "passkey" | "dev" = passkeyId ? "passkey" : "dev";
 
   const db = getDb();
   const rows = await db
@@ -86,7 +76,7 @@ export async function resolveSession(store: CookieStore): Promise<SessionResolut
     .set({ lastActiveAt: now, expiresAt: newExpiresAt })
     .where(eq(sessionsAuth.id, sessionId));
 
-  return { user: row.user, sessionId, expiresAt: newExpiresAt, kind };
+  return { user: row.user, sessionId, expiresAt: newExpiresAt };
 }
 
 /** cookie の破棄とテーブル削除 */
@@ -101,30 +91,18 @@ export async function destroySession(sessionId: string): Promise<void> {
  */
 export function refreshSessionCookie(
   store: CookieStore,
-  resolution: Pick<SessionResolution, "sessionId" | "expiresAt" | "kind">,
+  resolution: Pick<SessionResolution, "sessionId" | "expiresAt">,
 ): void {
   try {
-    if (resolution.kind === "passkey") {
-      store.set({
-        name: SESSION_COOKIE_NAME,
-        value: resolution.sessionId,
-        httpOnly: true,
-        secure: true,
-        sameSite: "lax",
-        path: "/",
-        expires: resolution.expiresAt,
-      });
-    } else {
-      store.set({
-        name: DEV_SESSION_COOKIE_NAME,
-        value: resolution.sessionId,
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        expires: resolution.expiresAt,
-        secure: process.env.NODE_ENV === "production",
-      });
-    }
+    store.set({
+      name: SESSION_COOKIE_NAME,
+      value: resolution.sessionId,
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      expires: resolution.expiresAt,
+    });
   } catch {
     // Server Component など store.set が呼べない文脈では DB 側の延長で十分 (cookie は
     // 次回ミドルウェア / Route Handler 経由で再発行される)
@@ -133,8 +111,7 @@ export function refreshSessionCookie(
 
 /** Route Handler 内で使うヘルパ。sliding expiry の cookie 再発行も同時に行う。
  *  同一 request 内の複数呼び出しは React.cache で dedup (nested layout + page で
- *  両方呼ぶケースで DB round-trip が 2 回走るのを防ぐ、Codex Round 5 指摘 #1 の
- *  route group layout 採用に伴う追加)。 */
+ *  両方呼ぶケースで DB round-trip が 2 回走るのを防ぐ、PR#84 Codex Round 5 由来)。 */
 export const getCurrentUser = cache(async (): Promise<User | null> => {
   const store = await cookies();
   const resolved = await resolveSession(store);

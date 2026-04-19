@@ -28,7 +28,7 @@
 - **pnpm** (npm / yarn / bun は採用しない)
 - **Neon (PostgreSQL 16+) + Drizzle (pg dialect)** — ADR-0003
 - **tRPC**
-- **Passkey (WebAuthn) 認証** — `@simplewebauthn/server` + `/browser` — ADR-0004
+- **GitHub OAuth 認証** (Authorization Code + PKCE、`fetch` + Zod 直叩き) — ADR-0006 (旧 ADR-0004 Passkey から置き換え)
 - **OpenAI API** — MVP は `gpt-5` + `gpt-5-mini`。高 reasoning は Phase 2+ — ADR-0005
 - **shadcn/ui + Tailwind**
 - **Vitest**
@@ -41,7 +41,7 @@
 | Bun / Deno に差し替え                            | Vercel 相性、決定済み (`06.5.1`)  |
 | 他 LLM プロバイダ (Anthropic / Google 等) 追加   | OpenAI 一本で行く (ADR-0005)      |
 | Turso / SQLite / 他 DB に戻す                    | Neon に確定 (ADR-0003)            |
-| Clerk / Auth.js / OAuth を追加                   | Passkey 一本 (ADR-0004)           |
+| Clerk / Auth.js / 追加 OAuth プロバイダ          | GitHub OAuth 一本 (ADR-0006)      |
 | Upstash Redis / PostHog / Logtail 追加           | MVP では使わない (`06.5.2`)       |
 | Web Push 実装                                    | Phase 5+、メールが先              |
 | Streak / バッジ / ポイント                       | ゲーミフィケーション禁止 (`08.9`) |
@@ -156,7 +156,7 @@ MVP で書く:
 - テストも一緒に書く
 - 型を厳密に (`any` を返す関数を作らない)
 - OpenAI API 呼び出しは `src/lib/openai/client.ts` 経由に統一する
-- 認証関連は `src/server/auth/` 経由、Passkey ライブラリを直接触らない
+- 認証関連は `src/server/auth/` 経由、GitHub OAuth の token 交換等を UI / tRPC 層から直接叩かない
 
 ### やらないでほしい
 

@@ -3,7 +3,6 @@ import { describe, it, expectTypeOf } from "vitest";
 import {
   type Attempt,
   type Concept,
-  type Credential,
   type DailyStat,
   type Mastery,
   type Misconception,
@@ -14,31 +13,32 @@ import {
   type SessionAuth,
   type SessionTemplate,
   type User,
-  type WebauthnChallenge,
   DIFFICULTY_LEVELS,
   DOMAIN_IDS,
   QUESTION_TYPES,
   SESSION_KINDS,
   THINKING_STYLES,
-  WEBAUTHN_CHALLENGE_PURPOSES,
   concepts,
-  credentials,
   sessions,
   users,
 } from "./schema";
 
 describe("db/schema", () => {
-  it("users 型は id/email/displayName を持ち、createdAt は Date", () => {
+  it("users 型は id/email/displayName/github_user_id を持ち、createdAt は Date", () => {
     expectTypeOf<User["id"]>().toEqualTypeOf<string>();
-    expectTypeOf<User["email"]>().toEqualTypeOf<string>();
+    // ADR-0006 (GitHub OAuth) で email は任意に変更
+    expectTypeOf<User["email"]>().toEqualTypeOf<string | null>();
     expectTypeOf<User["displayName"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<User["githubUserId"]>().toEqualTypeOf<number | null>();
+    expectTypeOf<User["githubLogin"]>().toEqualTypeOf<string | null>();
     expectTypeOf<User["createdAt"]>().toEqualTypeOf<Date>();
   });
 
   it("NewUser では id/createdAt など default 付きカラムは optional", () => {
-    expectTypeOf<NewUser>().toMatchTypeOf<{ email: string }>();
-    // デフォルト値があるので insert 時に省略可能
+    // email / github_user_id 共に任意 (ADR-0006 で email の NOT NULL 制約を外した)
     expectTypeOf<NewUser["id"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<NewUser["email"]>().toEqualTypeOf<string | null | undefined>();
+    expectTypeOf<NewUser["githubUserId"]>().toEqualTypeOf<number | null | undefined>();
     expectTypeOf<NewUser["createdAt"]>().toEqualTypeOf<Date | undefined>();
   });
 
@@ -82,26 +82,16 @@ describe("db/schema", () => {
     expectTypeOf<Mastery["mastered"]>().toEqualTypeOf<boolean>();
   });
 
-  it("credentials の counter は bigint", () => {
-    expectTypeOf<Credential["counter"]>().toEqualTypeOf<bigint>();
-    expectTypeOf<Credential["publicKey"]>().toEqualTypeOf<Uint8Array>();
-  });
-
-  it("sessionsAuth/webauthnChallenges/dailyStats/misconceptions/sessionTemplates の基本型", () => {
+  it("sessionsAuth / dailyStats / misconceptions / sessionTemplates の基本型", () => {
     expectTypeOf<SessionAuth["expiresAt"]>().toEqualTypeOf<Date>();
-    expectTypeOf<WebauthnChallenge["purpose"]>().toEqualTypeOf<
-      (typeof WEBAUTHN_CHALLENGE_PURPOSES)[number]
-    >();
     expectTypeOf<DailyStat["attemptsCount"]>().toEqualTypeOf<number>();
     expectTypeOf<Misconception["resolved"]>().toEqualTypeOf<boolean>();
     expectTypeOf<SessionTemplate["useCount"]>().toEqualTypeOf<number>();
   });
 
   it("外部キーが PgTable として認識できる (関係の土台)", () => {
-    // これらが export されていれば「テーブルとして存在する」のテストになる
     expectTypeOf(users).not.toBeAny();
     expectTypeOf(concepts).not.toBeAny();
     expectTypeOf(sessions).not.toBeAny();
-    expectTypeOf(credentials).not.toBeAny();
   });
 });

@@ -21,8 +21,10 @@ import { trpc } from "@/lib/trpc/react";
 
 export type InitialHomeUser = {
   id: string;
-  email: string;
+  /** GitHub OAuth 移行 (ADR-0006) で email は任意に。表示には github_login / displayName を優先使用。 */
+  email: string | null;
   displayName: string | null;
+  githubLogin: string | null;
   dailyGoal: number;
 } | null;
 
@@ -104,11 +106,11 @@ export function HomeScreen({ initialUser }: { initialUser: InitialHomeUser }) {
           <CardDescription>エンジニアのための AI 家庭教師</CardDescription>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
-          このデバイスの Passkey でログインしてください。
+          GitHub アカウントでログインしてください。
         </CardContent>
         <CardFooter className="flex gap-2">
           <Button asChild>
-            <a href="/login">Passkey でログイン</a>
+            <a href="/login">GitHub でログイン</a>
           </Button>
         </CardFooter>
       </Card>
@@ -126,7 +128,7 @@ export function HomeScreen({ initialUser }: { initialUser: InitialHomeUser }) {
         <header className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <h1 className="truncate text-2xl font-semibold">
-              ようこそ、{user.displayName ?? user.email}
+              ようこそ、{user.displayName ?? user.githubLogin ?? user.email ?? "ユーザー"}
             </h1>
             <p className="text-muted-foreground text-sm">
               1日の目標: <span className="font-medium">{user.dailyGoal} 問</span>
