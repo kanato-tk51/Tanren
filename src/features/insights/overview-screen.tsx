@@ -106,9 +106,12 @@ export function InsightsOverviewScreen() {
         </CardHeader>
         <CardContent className="space-y-3">
           <ProgressBar value={data.masteryPct} />
-          <div>
+          <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline" size="sm">
-              <Link href="/insights/map">🗺 Mastery Map を開く</Link>
+              <Link href="/insights/map">🗺 Mastery Map</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/insights/trends">📈 Trends</Link>
             </Button>
           </div>
         </CardContent>
