@@ -9,7 +9,12 @@ import { getDb } from "@/db/client";
 import { sessionsAuth, users, type User } from "@/db/schema";
 
 import { isDevShortcutAvailable, isLocalAuthBypassEnabled } from "./capabilities";
-import { DEV_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "./constants";
+import {
+  DEV_SESSION_COOKIE_NAME,
+  LOCAL_BYPASS_OFF_COOKIE_NAME,
+  SESSION_COOKIE_NAME,
+  SESSION_MAX_AGE_MS,
+} from "./constants";
 import { ensureLocalDevUser } from "./dev-login";
 
 export type CookieStore = ReadonlyRequestCookies | Awaited<ReturnType<typeof cookies>>;
@@ -19,8 +24,12 @@ type SessionResolution = {
   sessionId: string;
   /** resolve 時に延長された expiresAt。cookie の再発行に使う */
   expiresAt: Date;
-  /** dev (non __Host-) セッションか、Passkey (__Host-) セッションか */
-  kind: "passkey" | "dev";
+  /**
+   * - `passkey`: __Host- cookie 経由の Passkey セッション
+   * - `dev`: dev ショートカット由来の non-__Host- cookie セッション
+   * - `bypass`: ローカル bypass (issue #71 着地までの暫定、cookie なし)
+   */
+  kind: "passkey" | "dev" | "bypass";
 };
 
 /** `sessions_auth` に新しい行を作り、cookie attribute を返す */
@@ -60,12 +69,17 @@ export async function resolveSession(store: CookieStore): Promise<SessionResolut
   // issue #71 着地までの暫定: ローカル dev では cookie を見ずに固定 dev user を返す。
   // preview / production では isLocalAuthBypassEnabled が必ず false になり通常フローへ落ちる。
   if (isLocalAuthBypassEnabled()) {
+    // `/api/auth/logout` が立てた opt-out cookie がある間は bypass を skip し、
+    // 「ログアウト直後は未認証状態でいられる」体験を保つ。cookie を削除すれば bypass が戻る。
+    if (store.get(LOCAL_BYPASS_OFF_COOKIE_NAME)?.value) {
+      return null;
+    }
     const user = await ensureLocalDevUser();
     return {
       user,
       sessionId: "local-dev-bypass",
       expiresAt: new Date(Date.now() + SESSION_MAX_AGE_MS),
-      kind: "dev",
+      kind: "bypass",
     };
   }
 
@@ -115,6 +129,8 @@ export function refreshSessionCookie(
   store: CookieStore,
   resolution: Pick<SessionResolution, "sessionId" | "expiresAt" | "kind">,
 ): void {
+  // bypass 由来は cookie を持たない (DB にも sessions_auth 行が無い)。書き込まない。
+  if (resolution.kind === "bypass") return;
   try {
     if (resolution.kind === "passkey") {
       store.set({

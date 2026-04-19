@@ -22,7 +22,12 @@ vi.mock("@/db/client", () => ({
   getDb: () => builders,
 }));
 
-import { DEV_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "./constants";
+import {
+  DEV_SESSION_COOKIE_NAME,
+  LOCAL_BYPASS_OFF_COOKIE_NAME,
+  SESSION_COOKIE_NAME,
+  SESSION_MAX_AGE_MS,
+} from "./constants";
 import { resolveSession } from "./session";
 
 function mockCookieStore(values: Record<string, string>) {
@@ -116,5 +121,15 @@ describe("resolveSession", () => {
     );
     expect(result).toBeNull();
     expect(builders.select).not.toHaveBeenCalled();
+  });
+
+  it("ローカル bypass 有効でも LOCAL_BYPASS_OFF cookie があれば null (ログアウト維持)", async () => {
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "development");
+    const result = await resolveSession(mockCookieStore({ [LOCAL_BYPASS_OFF_COOKIE_NAME]: "1" }));
+    // bypass を skip して通常フローに落ちる。cookie が無いので null。
+    expect(result).toBeNull();
+    expect(builders.select).not.toHaveBeenCalled();
+    expect(builders.insert).not.toHaveBeenCalled();
   });
 });

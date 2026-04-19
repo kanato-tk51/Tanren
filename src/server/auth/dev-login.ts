@@ -31,17 +31,20 @@ export async function findUserByEmail(email: string) {
  * ローカル bypass 用の dev user を idempotent に確保する。
  * onboarding 完了済みで作成して /onboarding への強制リダイレクトを回避。
  * 興味分野は Tier 1 全ドメイン、self_level は "mid"。
+ *
+ * users.email は unique 制約付きなので、初回並列リクエストでの race は
+ * `onConflictDoNothing` + 再読込で吸収する (losing race 側は再 select で勝者の行を拾う)。
  */
 export async function ensureLocalDevUser(): Promise<User> {
   const db = getDb();
-  const existing = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, LOCAL_DEV_USER_EMAIL))
-    .limit(1);
+
+  const fetchExisting = () =>
+    db.select().from(users).where(eq(users.email, LOCAL_DEV_USER_EMAIL)).limit(1);
+
+  const existing = await fetchExisting();
   if (existing[0]) return existing[0];
 
-  const [inserted] = await db
+  const inserted = await db
     .insert(users)
     .values({
       email: LOCAL_DEV_USER_EMAIL,
@@ -50,9 +53,14 @@ export async function ensureLocalDevUser(): Promise<User> {
       interestDomains: [...TIER_1_DOMAIN_IDS],
       selfLevel: "mid",
     })
+    .onConflictDoNothing({ target: users.email })
     .returning();
-  if (!inserted) {
-    throw new Error("failed to create local dev user");
+  if (inserted[0]) return inserted[0];
+
+  // 並列 insert で負けた側は row が返らないので勝者の行を再読込する。
+  const refetched = await fetchExisting();
+  if (!refetched[0]) {
+    throw new Error("failed to ensure local dev user: race lost and row still missing");
   }
-  return inserted;
+  return refetched[0];
 }

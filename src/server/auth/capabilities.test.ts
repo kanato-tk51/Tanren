@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { isDevShortcutAvailable } from "./capabilities";
+import { isDevShortcutAvailable, isLocalAuthBypassEnabled } from "./capabilities";
 
 function setEnv(partial: Record<string, string | undefined>) {
   for (const [key, value] of Object.entries(partial)) {
@@ -66,5 +66,41 @@ describe("isDevShortcutAvailable", () => {
       NODE_ENV: "development",
     });
     expect(isDevShortcutAvailable()).toBe(true);
+  });
+});
+
+describe("isLocalAuthBypassEnabled", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("ローカル dev (NODE_ENV=development, VERCEL_ENV 未設定) は true", () => {
+    setEnv({ VERCEL_ENV: undefined, NODE_ENV: "development" });
+    expect(isLocalAuthBypassEnabled()).toBe(true);
+  });
+
+  it("vercel dev (VERCEL_ENV=development, NODE_ENV=development) は true", () => {
+    setEnv({ VERCEL_ENV: "development", NODE_ENV: "development" });
+    expect(isLocalAuthBypassEnabled()).toBe(true);
+  });
+
+  it("Vercel preview は false (認証バイパス防止)", () => {
+    setEnv({ VERCEL_ENV: "preview", NODE_ENV: "production" });
+    expect(isLocalAuthBypassEnabled()).toBe(false);
+  });
+
+  it("Vercel production は false", () => {
+    setEnv({ VERCEL_ENV: "production", NODE_ENV: "production" });
+    expect(isLocalAuthBypassEnabled()).toBe(false);
+  });
+
+  it("self-host next start (VERCEL_ENV 未設定, NODE_ENV=production) は false", () => {
+    setEnv({ VERCEL_ENV: undefined, NODE_ENV: "production" });
+    expect(isLocalAuthBypassEnabled()).toBe(false);
+  });
+
+  it("vitest 環境 (NODE_ENV=test) は false", () => {
+    setEnv({ VERCEL_ENV: undefined, NODE_ENV: "test" });
+    expect(isLocalAuthBypassEnabled()).toBe(false);
   });
 });
