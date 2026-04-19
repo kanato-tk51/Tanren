@@ -43,6 +43,16 @@ export function isNavHidden(pathname: string): boolean {
   );
 }
 
+/** 未ログインでも到達可能なルート。OfflineDrainer は trpc.auth.me を fetch するため
+ *  ここに該当するページでは mount しない (共有 cache への `authenticated:false` seed 防止)。 */
+const PUBLIC_ROUTE_PREFIXES = ["/login"];
+
+export function isPublicRoute(pathname: string): boolean {
+  return PUBLIC_ROUTE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
 export function activeTabId(pathname: string): NavTabId | null {
   for (const tab of NAV_TABS) {
     if (tab.matches(pathname)) return tab.id;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { activeTabId, isNavHidden } from "./nav-routes";
+import { activeTabId, isNavHidden, isPublicRoute } from "./nav-routes";
 
 describe("activeTabId", () => {
   it("/ → home", () => {
@@ -49,5 +49,23 @@ describe("isNavHidden", () => {
     // /drillarchive のような未来のルート名が誤って隠されないこと
     expect(isNavHidden("/drillarchive")).toBe(false);
     expect(isNavHidden("/customizer")).toBe(false);
+  });
+});
+
+describe("isPublicRoute", () => {
+  it("/login は公開ルート", () => {
+    expect(isPublicRoute("/login")).toBe(true);
+    expect(isPublicRoute("/login/register")).toBe(true);
+  });
+
+  it("認証済みページは公開ルートではない", () => {
+    expect(isPublicRoute("/")).toBe(false);
+    expect(isPublicRoute("/drill")).toBe(false);
+    expect(isPublicRoute("/insights")).toBe(false);
+    expect(isPublicRoute("/onboarding")).toBe(false);
+  });
+
+  it("prefix collision 安全", () => {
+    expect(isPublicRoute("/loginarchive")).toBe(false);
   });
 });
