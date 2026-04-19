@@ -93,9 +93,26 @@ export async function enqueueSubmit(item: PendingSubmit): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_SUBMITS, "readwrite");
-    // sequence は autoIncrement で自動採番。同一 clientId は IDX_CLIENT_ID の UNIQUE
-    // 制約で弾かれる (caller 側の二重 enqueue を防ぐ)。
-    tx.objectStore(STORE_SUBMITS).add(item);
+    const store = tx.objectStore(STORE_SUBMITS);
+    // (sessionId, questionId) 単位で重複 enqueue を防ぐ。caller (drill-screen) が
+    // 同じ問題に対して再試行ボタン / 回答ボタン連打をしても queue が膨れない
+    // (Codex PR#87 Round 1 指摘 #1)。先に getAll で既存エントリを走査して一致が
+    // あれば add をスキップ。件数は drain が間に合わない時の pending 数なので、
+    // 全走査でも実用上問題ない。
+    const getReq = store.getAll();
+    getReq.onsuccess = () => {
+      const existing = (getReq.result as PendingSubmit[]).some(
+        (p) => p.sessionId === item.sessionId && p.questionId === item.questionId,
+      );
+      if (existing) {
+        // 重複は無視。上位から見ると enqueue は成功した扱い (idempotent)。
+        return;
+      }
+      // sequence は autoIncrement で自動採番。同一 clientId は IDX_CLIENT_ID の UNIQUE
+      // 制約で弾かれる (caller 側の二重 enqueue を防ぐ)。
+      store.add(item);
+    };
+    getReq.onerror = () => reject(getReq.error ?? new Error("IndexedDB getAll failed"));
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error ?? new Error("IndexedDB add failed"));
   });
