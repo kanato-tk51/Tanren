@@ -146,11 +146,10 @@ function HomeHeader({
 
 function DailyDrillCard({ dailyGoal }: { dailyGoal: number }) {
   const progress = trpc.home.dailyProgress.useQuery();
-  const attemptCount = progress.data?.attemptCount ?? 0;
-  const ratio = dailyGoal > 0 ? Math.min(attemptCount / dailyGoal, 1) : 0;
-  // aria-valuenow は [0, dailyGoal] の範囲に clamp し、aria-valuetext で実数を補う
-  // (目標超過日でも ARIA 仕様上の valuemin/valuemax を逸脱しないため)。
-  const ariaValueNow = Math.min(attemptCount, dailyGoal);
+  // 成功時だけ確定値として表示する。loading / error 中はバー幅も aria も未確定扱いにして
+  // 「今日 0 問」と見分けがつくようにする (Codex Round 2 指摘)。
+  const attemptCount = progress.isSuccess ? progress.data.attemptCount : null;
+  const ratio = attemptCount !== null && dailyGoal > 0 ? Math.min(attemptCount / dailyGoal, 1) : 0;
   return (
     <Card>
       <CardHeader>
@@ -160,26 +159,37 @@ function DailyDrillCard({ dailyGoal }: { dailyGoal: number }) {
         <CardDescription>
           {progress.isError
             ? "今日の進捗を取得できませんでした"
-            : progress.isLoading
+            : attemptCount === null
               ? "進捗を読み込み中…"
               : `${attemptCount} / ${dailyGoal} 問 (JST 00:00 以降)`}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div
-          className="bg-secondary h-2 w-full overflow-hidden rounded-full"
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={dailyGoal}
-          aria-valuenow={ariaValueNow}
-          aria-valuetext={`${attemptCount} / ${dailyGoal} 問`}
-          aria-label="今日の進捗"
-        >
+        {attemptCount !== null ? (
           <div
-            className="bg-primary h-full transition-[width]"
-            style={{ width: `${Math.round(ratio * 100)}%` }}
+            className="bg-secondary h-2 w-full overflow-hidden rounded-full"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={dailyGoal}
+            // aria-valuenow は [0, dailyGoal] に clamp し、実数は aria-valuetext で補う
+            // (目標超過日でも ARIA 仕様上の valuemin/valuemax を逸脱しないため)。
+            aria-valuenow={Math.min(attemptCount, dailyGoal)}
+            aria-valuetext={`${attemptCount} / ${dailyGoal} 問`}
+            aria-label="今日の進捗"
+          >
+            <div
+              className="bg-primary h-full transition-[width]"
+              style={{ width: `${Math.round(ratio * 100)}%` }}
+            />
+          </div>
+        ) : (
+          <div
+            className="bg-secondary h-2 w-full overflow-hidden rounded-full"
+            role="progressbar"
+            aria-label="今日の進捗"
+            aria-valuetext={progress.isError ? "取得失敗" : "読み込み中"}
           />
-        </div>
+        )}
       </CardContent>
       <CardFooter>
         <Button asChild className="min-h-12 w-full">
