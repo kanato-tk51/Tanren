@@ -31,6 +31,8 @@ export function WebPushToggle() {
   const publicKeyQuery = trpc.push.getPublicKey.useQuery(undefined, {
     retry: false,
   });
+  const settingsQuery = trpc.settings.get.useQuery();
+  const utils = trpc.useUtils();
   const subscribeMut = trpc.push.subscribe.useMutation();
   const unsubscribeMut = trpc.push.unsubscribe.useMutation();
   const setEnabledMut = trpc.push.setEnabled.useMutation();
@@ -39,7 +41,10 @@ export function WebPushToggle() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // 初回: 現在の permission / subscription 状態を把握
+  // 初回: 現在の permission / subscription 状態を把握。
+  // UI の ON/OFF は「この端末で subscription あり」AND「サーバー側 webPushEnabled=true」の AND
+  // (Codex Round 2 指摘 A: 責務分離後の UI 整合)。
+  const webPushEnabled = settingsQuery.data?.webPushEnabled ?? false;
   useEffect(() => {
     void (async () => {
       if (typeof window === "undefined") return;
@@ -53,9 +58,10 @@ export function WebPushToggle() {
       }
       const reg = await navigator.serviceWorker.getRegistration();
       const sub = reg ? await reg.pushManager.getSubscription() : null;
-      setStatus(sub ? "subscribed" : "unsubscribed");
+      const subscribedHere = Boolean(sub);
+      setStatus(subscribedHere && webPushEnabled ? "subscribed" : "unsubscribed");
     })();
-  }, []);
+  }, [webPushEnabled]);
 
   const onSubscribe = useCallback(async () => {
     setError(null);
@@ -98,13 +104,14 @@ export function WebPushToggle() {
       }
       // 購読と設定フラグの責務分離 (Codex Round 1 指摘 #3)。購読成功したら明示的に ON にする。
       await setEnabledMut.mutateAsync({ enabled: true });
+      await utils.settings.get.invalidate();
       setStatus("subscribed");
     } catch (e) {
       setError(e instanceof Error ? e.message : "購読に失敗しました");
     } finally {
       setBusy(false);
     }
-  }, [publicKeyQuery.isError, publicKeyQuery.data, subscribeMut, setEnabledMut]);
+  }, [publicKeyQuery.isError, publicKeyQuery.data, subscribeMut, setEnabledMut, utils]);
 
   const onUnsubscribe = useCallback(async () => {
     setError(null);
@@ -116,13 +123,18 @@ export function WebPushToggle() {
         await unsubscribeMut.mutateAsync({ endpoint: sub.endpoint });
         await sub.unsubscribe();
       }
+      // onSubscribe と対称に、機能全体の送信 gate も OFF にする (Codex Round 2 指摘 B)。
+      // push.unsubscribe は最後の 1 件削除時のみ web_push_enabled=false にするので、
+      // 複数デバイスで購読していても、このデバイスで OFF を押したら配信 gate も切る意図を尊重。
+      await setEnabledMut.mutateAsync({ enabled: false });
+      await utils.settings.get.invalidate();
       setStatus("unsubscribed");
     } catch (e) {
       setError(e instanceof Error ? e.message : "解除に失敗しました");
     } finally {
       setBusy(false);
     }
-  }, [unsubscribeMut]);
+  }, [unsubscribeMut, setEnabledMut, utils]);
 
   return (
     <div className="flex items-center justify-between gap-3">
