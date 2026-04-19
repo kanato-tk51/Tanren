@@ -49,13 +49,19 @@ export async function GET(req: Request) {
       continue;
     }
     try {
-      await resend.emails.send({
+      // Resend SDK は API エラー時に throw せず { data, error } を返すことがあるので、
+      // error を明示的に受け取って判定する (Codex Round 2 指摘 #1)。
+      const result = await resend.emails.send({
         from,
         to: t.email,
         subject: "Tanren Weekly Digest",
         html: renderDigestHtml(t),
       });
-      sent += 1;
+      if (result.error) {
+        errors.push({ userId: t.userId, error: result.error.message ?? String(result.error) });
+      } else {
+        sent += 1;
+      }
     } catch (err) {
       errors.push({ userId: t.userId, error: err instanceof Error ? err.message : String(err) });
     }

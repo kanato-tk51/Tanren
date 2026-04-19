@@ -4,6 +4,7 @@ import { and, eq, gte, sql } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
 import { attempts, sessionsAuth, users } from "@/db/schema";
+import { appUrl } from "@/lib/env";
 
 // sessionsAuth は直接 JOIN で引くと 1 user × N デバイスの fan-out で
 // attempt 集計が N 倍に水増しされる (Codex Round 1 指摘 A)。
@@ -99,7 +100,7 @@ export function renderDigestHtml(m: DigestMetrics): string {
       </tbody>
     </table>
     <p style="margin-top:16px;">
-      <a href="${escapeHtml(process.env.NEXT_PUBLIC_APP_URL ?? "https://tanren.vercel.app")}/insights/trends">Trends で詳細を見る →</a>
+      <a href="${escapeHtml(appUrl)}/insights/trends">Trends で詳細を見る →</a>
     </p>
     <p style="color:#64748b; font-size:12px; margin-top:24px;">
       このメールを止めるには設定画面から「Weekly Digest」を OFF にしてください。

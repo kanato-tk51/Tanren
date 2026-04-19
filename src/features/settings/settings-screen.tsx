@@ -13,9 +13,12 @@ export function SettingsScreen() {
   const utils = trpc.useUtils();
   const [error, setError] = useState<string | null>(null);
 
-  const enabled = settings.data?.weeklyDigestEnabled ?? true;
+  // 取得失敗 / ロード中は null を区別、誤操作を防ぐ (Codex Round 2 指摘 #2)
+  const enabled = settings.data?.weeklyDigestEnabled ?? null;
+  const canToggle = enabled !== null && !settings.isError;
 
   async function onToggle() {
+    if (enabled === null) return;
     setError(null);
     try {
       await setWeekly.mutateAsync({ enabled: !enabled });
@@ -42,15 +45,20 @@ export function SettingsScreen() {
             </div>
           </div>
           <Button
-            variant={enabled ? "default" : "outline"}
+            variant={enabled === true ? "default" : "outline"}
             size="sm"
             onClick={onToggle}
-            disabled={settings.isLoading || setWeekly.isPending}
-            aria-pressed={enabled}
+            disabled={!canToggle || setWeekly.isPending}
+            aria-pressed={enabled === true}
           >
-            {enabled ? "ON" : "OFF"}
+            {settings.isLoading ? "…" : enabled === true ? "ON" : "OFF"}
           </Button>
         </div>
+        {settings.isError && (
+          <p className="text-destructive text-xs">
+            設定の読み込みに失敗しました: {settings.error.message}
+          </p>
+        )}
         {error && <p className="text-destructive text-xs">{error}</p>}
       </CardContent>
     </Card>
