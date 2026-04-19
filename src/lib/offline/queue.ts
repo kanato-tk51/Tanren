@@ -15,11 +15,17 @@
  * 注意: enqueueSubmit の production caller (drill-screen の submit onError からの配線) は
  * 本 PR のスコープ外。本 PR ではインフラ (queue + drainer + banner) だけを入れ、
  * 実配線は follow-up で追加する (Codex Round 1 指摘 #2、別 issue で継続)。
+ *
+ * FIFO 保証: caller 渡しの `enqueuedAt` 文字列は時計ずれや同一 ms のタイで順序が曖昧に
+ * なりうるため (Codex Round 5 指摘 #2)、queue 層が採番する `sequence` (単調増加整数) を
+ * 一次キーとして持ち、drain はこの順で取り出す。`sequence` は IndexedDB の
+ * `autoIncrement: true` 機能で自動採番される。
  */
 
 const DB_NAME = "tanren-offline";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_SUBMITS = "pending-submits";
+const IDX_CLIENT_ID = "by-clientId";
 
 /** drain 時に「この閾値を超えた retryCount のエントリは削除」判定に使う上限
  *  (Codex Round 1 指摘 #3c: poison queue 防止)。指数バックオフは入れず単純に打ち切り。
@@ -27,7 +33,7 @@ const STORE_SUBMITS = "pending-submits";
 export const MAX_RETRY_COUNT = 5;
 
 export type PendingSubmit = {
-  /** クライアント側で生成する UUID。drain 時のキーにする */
+  /** クライアント側で生成する UUID。同一提出の重複 enqueue を防ぐ外部 key */
   clientId: string;
   /** enqueue 時点でログイン中だった userId。drain 時に現在の userId と一致しないエントリは
    *  破棄する (Codex Round 1 指摘 #3a: マルチユーザー端末での cross-user replay 防止)。 */
@@ -37,11 +43,14 @@ export type PendingSubmit = {
   userAnswer: string;
   reasonGiven?: string;
   elapsedMs?: number;
-  /** 積まれた時刻 (ISO 8601) */
+  /** 積まれた時刻 (ISO 8601)。表示用で drain 順には使わない */
   enqueuedAt: string;
   /** drain 失敗回数 (初期値 0)。MAX_RETRY_COUNT 超えで破棄 */
   retryCount?: number;
 };
+
+/** IndexedDB の内部 primary key (autoIncrement)。保存時だけ付与。 */
+type StoredSubmit = PendingSubmit & { sequence?: number };
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -52,9 +61,18 @@ function openDb(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_SUBMITS)) {
-        db.createObjectStore(STORE_SUBMITS, { keyPath: "clientId" });
+      // v1 で作られた旧 store (keyPath=clientId) は FIFO 保証できないため一度削除して
+      // autoIncrement primary key の新構造で作り直す。本 PR 時点で enqueue caller は
+      // 未配線 (queue は常に空) なので既存ユーザーのデータは実質失われない。
+      if (db.objectStoreNames.contains(STORE_SUBMITS)) {
+        db.deleteObjectStore(STORE_SUBMITS);
       }
+      const store = db.createObjectStore(STORE_SUBMITS, {
+        keyPath: "sequence",
+        autoIncrement: true,
+      });
+      // removeSubmit / incrementRetryOrRemove から clientId で引くためのセカンダリ index。
+      store.createIndex(IDX_CLIENT_ID, "clientId", { unique: true });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error ?? new Error("IndexedDB open failed"));
@@ -65,9 +83,11 @@ export async function enqueueSubmit(item: PendingSubmit): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_SUBMITS, "readwrite");
-    tx.objectStore(STORE_SUBMITS).put(item);
+    // sequence は autoIncrement で自動採番。同一 clientId は IDX_CLIENT_ID の UNIQUE
+    // 制約で弾かれる (caller 側の二重 enqueue を防ぐ)。
+    tx.objectStore(STORE_SUBMITS).add(item);
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error ?? new Error("IndexedDB put failed"));
+    tx.onerror = () => reject(tx.error ?? new Error("IndexedDB add failed"));
   });
   db.close();
 }
@@ -75,30 +95,53 @@ export async function enqueueSubmit(item: PendingSubmit): Promise<void> {
 export async function listPendingSubmits(): Promise<PendingSubmit[]> {
   const db = await openDb();
   try {
-    const rows = await new Promise<PendingSubmit[]>((resolve, reject) => {
+    // primary key (sequence) 昇順に iterate。getAll() は primary key 順を保証するため
+    // 呼び元でソート不要 (Codex Round 5 指摘 #2)。
+    return await new Promise<PendingSubmit[]>((resolve, reject) => {
       const tx = db.transaction(STORE_SUBMITS, "readonly");
       const req = tx.objectStore(STORE_SUBMITS).getAll();
       req.onsuccess = () => resolve(req.result as PendingSubmit[]);
       req.onerror = () => reject(req.error ?? new Error("IndexedDB getAll failed"));
     });
-    // enqueue 順 (FIFO) に明示 sort。同一 session 内で 2 件以上保留しているとき、
-    // drain を順不同で流すと server の pendingQuestionId チェックで後続が
-    // BAD_REQUEST になる (Codex Round 4 指摘 #1)。
-    return rows.slice().sort((a, b) => a.enqueuedAt.localeCompare(b.enqueuedAt));
   } finally {
     db.close();
   }
 }
 
+async function deleteByClientId(store: IDBObjectStore, clientId: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const idx = store.index(IDX_CLIENT_ID);
+    const keyReq = idx.getKey(clientId);
+    keyReq.onsuccess = () => {
+      const pk = keyReq.result;
+      if (pk === undefined) {
+        resolve();
+        return;
+      }
+      const delReq = store.delete(pk);
+      delReq.onsuccess = () => resolve();
+      delReq.onerror = () => reject(delReq.error ?? new Error("IndexedDB delete failed"));
+    };
+    keyReq.onerror = () => reject(keyReq.error ?? new Error("IndexedDB getKey failed"));
+  });
+}
+
 export async function removeSubmit(clientId: string): Promise<void> {
   const db = await openDb();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE_SUBMITS, "readwrite");
-    tx.objectStore(STORE_SUBMITS).delete(clientId);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error ?? new Error("IndexedDB delete failed"));
-  });
-  db.close();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_SUBMITS, "readwrite");
+      deleteByClientId(tx.objectStore(STORE_SUBMITS), clientId).then(
+        () => {
+          tx.oncomplete = () => resolve();
+        },
+        (err) => reject(err),
+      );
+      tx.onerror = () => reject(tx.error ?? new Error("IndexedDB tx failed"));
+    });
+  } finally {
+    db.close();
+  }
 }
 
 /** drain 失敗時に retryCount を +1 する。MAX_RETRY_COUNT を超える場合は削除して
@@ -109,16 +152,17 @@ export async function incrementRetryOrRemove(clientId: string): Promise<boolean>
     return await new Promise<boolean>((resolve, reject) => {
       const tx = db.transaction(STORE_SUBMITS, "readwrite");
       const store = tx.objectStore(STORE_SUBMITS);
-      const getReq = store.get(clientId);
+      const idx = store.index(IDX_CLIENT_ID);
+      const getReq = idx.get(clientId);
       getReq.onsuccess = () => {
-        const current = getReq.result as PendingSubmit | undefined;
-        if (!current) {
+        const current = getReq.result as StoredSubmit | undefined;
+        if (!current || current.sequence === undefined) {
           resolve(false);
           return;
         }
         const nextCount = (current.retryCount ?? 0) + 1;
         if (nextCount > MAX_RETRY_COUNT) {
-          store.delete(clientId);
+          store.delete(current.sequence);
           tx.oncomplete = () => resolve(true);
         } else {
           store.put({ ...current, retryCount: nextCount });
