@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc/react";
 
+import { WebPushToggle } from "./web-push-toggle";
+
 export function SettingsScreen() {
   const settings = trpc.settings.get.useQuery();
   const setWeekly = trpc.settings.setWeeklyDigestEnabled.useMutation();
@@ -60,6 +62,11 @@ export function SettingsScreen() {
           </p>
         )}
         {error && <p className="text-destructive text-xs">{error}</p>}
+        <WebPushToggle />
+        <p className="text-muted-foreground text-xs">
+          二重配信抑止: Weekly Digest はメール専用、Daily reminder は Web Push 専用なので同じ通知は
+          1 経路のみ配信されます。
+        </p>
       </CardContent>
     </Card>
   );

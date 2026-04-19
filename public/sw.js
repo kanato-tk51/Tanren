@@ -87,3 +87,36 @@ async function cacheFirst(request) {
   if (response.ok) await cache.put(request, response.clone());
   return response;
 }
+
+// Web Push (issue #37): push 受信 → notification を表示
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+  let payload;
+  try {
+    payload = event.data.json();
+  } catch {
+    payload = { title: "Tanren", body: event.data.text() };
+  }
+  const title = payload.title || "Tanren";
+  const options = {
+    body: payload.body ?? "",
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    data: { url: payload.url ?? "/" },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// 通知タップ時にアプリを開く
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url ?? "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const c of clients) {
+        if (c.url.endsWith(url) && "focus" in c) return c.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(url);
+    }),
+  );
+});

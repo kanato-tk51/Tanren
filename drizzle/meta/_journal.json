@@ -92,6 +92,13 @@
       "when": 1776500000000,
       "tag": "0012_weekly_digest_enabled",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1776501000000,
+      "tag": "0013_push_subscriptions",
+      "breakpoints": true
     }
   ]
 }

@@ -23,6 +23,9 @@ export const users = pgTable("users", {
   selfLevel: text("self_level").$type<DifficultyLevel>(),
   /** Weekly Digest メール (issue #36) の送信を受け取るか。デフォルト true (opt-out 方式) */
   weeklyDigestEnabled: boolean("weekly_digest_enabled").notNull().default(true),
+  /** Web Push (issue #37) を使うか。デフォルト false (opt-in)。
+   *  ブラウザ側で Notification.requestPermission() + subscription 作成してから ON にする想定。 */
+  webPushEnabled: boolean("web_push_enabled").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
