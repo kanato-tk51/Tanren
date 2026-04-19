@@ -8,6 +8,7 @@ import { onboardingRouter } from "./onboarding";
 import { pingRouter } from "./ping";
 import { questionsRouter } from "./questions";
 import { sessionRouter } from "./session";
+import { settingsRouter } from "./settings";
 
 export const appRouter = router({
   ping: pingRouter.ping,
@@ -19,6 +20,7 @@ export const appRouter = router({
   onboarding: onboardingRouter,
   questions: questionsRouter,
   session: sessionRouter,
+  settings: settingsRouter,
 });
 
 export type AppRouter = typeof appRouter;

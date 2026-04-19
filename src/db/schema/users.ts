@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 import type { DifficultyLevel, DomainId } from "./_constants";
 
@@ -21,6 +21,8 @@ export const users = pgTable("users", {
     .default(sql`'[]'::jsonb`),
   /** オンボーディングでの自己申告レベル */
   selfLevel: text("self_level").$type<DifficultyLevel>(),
+  /** Weekly Digest メール (issue #36) の送信を受け取るか。デフォルト true (opt-out 方式) */
+  weeklyDigestEnabled: boolean("weekly_digest_enabled").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
