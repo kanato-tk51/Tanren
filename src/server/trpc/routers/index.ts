@@ -6,6 +6,7 @@ import { customRouter } from "./custom";
 import { insightsRouter } from "./insights";
 import { onboardingRouter } from "./onboarding";
 import { pingRouter } from "./ping";
+import { pushRouter } from "./push";
 import { questionsRouter } from "./questions";
 import { sessionRouter } from "./session";
 import { settingsRouter } from "./settings";
@@ -18,6 +19,7 @@ export const appRouter = router({
   custom: customRouter,
   insights: insightsRouter,
   onboarding: onboardingRouter,
+  push: pushRouter,
   questions: questionsRouter,
   session: sessionRouter,
   settings: settingsRouter,
