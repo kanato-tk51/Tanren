@@ -36,6 +36,25 @@ export type MisconceptionTag = {
   description: string;
 };
 
+/** design タイプの対話採点の 1 ターン (issue #35)。 */
+export type DialogueTurn = {
+  /** "ai" = LLM 発話、"user" = ユーザー発話。初ターンのユーザー回答は userAnswer 側に残し dialogue は AI から始める */
+  role: "ai" | "user";
+  message: string;
+  /** ISO 8601 */
+  at: string;
+};
+
+/** design 対話採点の状態 (issue #35)。
+ *  - maxTurns: 交互に数える AI ターンの上限 (3 turns = AI が 3 回発話)
+ *  - finalized: 最終採点完了 (以降 followUp 不可)
+ */
+export type DialogueRecord = {
+  turns: DialogueTurn[];
+  maxTurns: number;
+  finalized: boolean;
+};
+
 export type RebuttalRecord = {
   /** 反論メッセージ (ユーザーが正解だと主張する根拠) */
   message: string;
@@ -82,6 +101,8 @@ export const attempts = pgTable(
     rubricChecks: jsonb("rubric_checks").$type<RubricCheckResult[]>(),
     misconceptionTags: jsonb("misconception_tags").$type<MisconceptionTag[]>(),
     rebuttal: jsonb("rebuttal").$type<RebuttalRecord>(),
+    /** design タイプの対話採点 state (issue #35)。 */
+    dialogue: jsonb("dialogue").$type<DialogueRecord>(),
     reasonGiven: text("reason_given"),
     copiedForExternal: integer("copied_for_external").notNull().default(0),
     /** 採点に使ったプロンプトの版 (CLAUDE.md §4.5)。mcq のようにプロンプト不使用の採点は null */

@@ -3,9 +3,26 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "@/db/client";
-import { attempts, questions, type RebuttalRecord } from "@/db/schema";
+import {
+  attempts,
+  questions,
+  type DialogueRecord,
+  type DialogueTurn,
+  type RebuttalRecord,
+} from "@/db/schema";
+import {
+  DESIGN_CORRECT_THRESHOLD,
+  DESIGN_MAX_AI_TURNS,
+  DESIGN_PROMPT_VERSION,
+  countAiTurns,
+  designRubricChecks,
+  runDesignTurn,
+} from "@/server/grader/design";
 import { gradeRebut } from "@/server/grader/rebut";
-import { reapplyMasteryAfterRebut } from "@/server/scheduler/update-mastery";
+import {
+  reapplyMasteryAfterRebut,
+  updateMasteryAfterAttempt,
+} from "@/server/scheduler/update-mastery";
 
 import { protectedProcedure, router } from "../init";
 
@@ -121,6 +138,161 @@ export const attemptsRouter = router({
         feedback: graded.feedback,
         overturned,
         rubricChecks: graded.rubricChecks,
+      };
+    }),
+
+  /**
+   * design 対話採点の follow-up (issue #35)。
+   * 既存 attempt (type='design') に対してユーザーの追加メッセージを投げ、LLM の次ターンを得る。
+   * AI が 3 ターン発話済みなら 400 (BAD_REQUEST)。LLM が finalized=true を返したら
+   * correct / score / feedback / rubricChecks を最終値で上書きし、mastery も更新する。
+   *
+   * Race 対策: SELECT→LLM→UPDATE の間に他リクエストで finalize されたら、UPDATE の
+   * WHERE 句に含める `dialogue->>'finalized' = 'false'` guard で 0 行更新を検知し、
+   * 「既に確定済み (並行 finalize)」BAD_REQUEST を返す (Codex Round 1 指摘 #1)。
+   */
+  followUp: protectedProcedure
+    .input(
+      z.object({
+        attemptId: z.string().min(1),
+        message: z.string().min(1).max(2000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+      const rows = await db
+        .select()
+        .from(attempts)
+        .where(and(eq(attempts.id, input.attemptId), eq(attempts.userId, ctx.user.id)))
+        .limit(1);
+      const prev = rows[0];
+      if (!prev) throw new TRPCError({ code: "NOT_FOUND", message: "attempt not found" });
+
+      const qRows = await db
+        .select()
+        .from(questions)
+        .where(eq(questions.id, prev.questionId))
+        .limit(1);
+      const question = qRows[0];
+      if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "question not found" });
+      if (question.type !== "design") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `type="${question.type}" は対話採点の対象外 (design のみ)`,
+        });
+      }
+
+      const dialogue: DialogueRecord = prev.dialogue ?? {
+        turns: [],
+        maxTurns: DESIGN_MAX_AI_TURNS,
+        finalized: false,
+      };
+      if (dialogue.finalized) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "この attempt の対話採点は既に確定しています",
+        });
+      }
+      if (countAiTurns(dialogue.turns) >= DESIGN_MAX_AI_TURNS) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `対話は最大 ${DESIGN_MAX_AI_TURNS} ターンまで`,
+        });
+      }
+
+      const now = new Date();
+      // user message を先に append
+      const userTurn: DialogueTurn = {
+        role: "user",
+        message: input.message,
+        at: now.toISOString(),
+      };
+      const turnsWithUser = [...dialogue.turns, userTurn];
+      // LLM に次ターンを聞く
+      const turnResult = await runDesignTurn({
+        question: { prompt: question.prompt },
+        initialUserAnswer: prev.userAnswer ?? "",
+        turns: turnsWithUser,
+      });
+      const resp = turnResult.response;
+      const aiTurn: DialogueTurn = {
+        role: "ai",
+        message: resp.nextQuestion ?? resp.feedback ?? "",
+        at: new Date().toISOString(),
+      };
+      const nextDialogue: DialogueRecord = {
+        turns: [...turnsWithUser, aiTurn],
+        maxTurns: DESIGN_MAX_AI_TURNS,
+        finalized: resp.finalized,
+      };
+
+      // Race 対策 (Codex Round 1 指摘 #1): UPDATE WHERE に「dialogue が未確定 (null or finalized=false)」
+      // を加えることで、SELECT と UPDATE の間に他リクエストが finalize した場合は 0 行更新で弾く。
+      // losing race 側は「既に確定済み」エラーを返す。
+      const unfinalizedGuard = sql`(${attempts.dialogue} IS NULL OR ${attempts.dialogue}->>'finalized' = 'false')`;
+
+      if (resp.finalized) {
+        const rubric = designRubricChecks(resp);
+        const correct = (resp.score ?? 0) >= DESIGN_CORRECT_THRESHOLD;
+        const updated = await db
+          .update(attempts)
+          .set({
+            correct,
+            score: resp.score,
+            feedback: resp.feedback,
+            rubricChecks: rubric,
+            // fallback 時は gradedBy を null にして「LLM が壊れて safe finalize」を識別可能に
+            gradedBy: turnResult.fallback ? null : turnResult.model,
+            promptVersion: DESIGN_PROMPT_VERSION,
+            dialogue: nextDialogue,
+          })
+          .where(and(eq(attempts.id, prev.id), eq(attempts.userId, ctx.user.id), unfinalizedGuard))
+          .returning({ id: attempts.id });
+        if (updated.length === 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "この attempt の対話採点は既に確定しています (並行 finalize)",
+          });
+        }
+        // fallback (LLM が壊れた) ケースでは mastery を動かさない (強制 0.4 で FSRS を揺らすのは根拠が弱い)
+        if (!turnResult.fallback) {
+          await updateMasteryAfterAttempt({
+            userId: ctx.user.id,
+            conceptId: prev.conceptId,
+            score: resp.score,
+          });
+        }
+        return {
+          attemptId: prev.id,
+          dialogue: nextDialogue,
+          finalized: true,
+          correct,
+          score: resp.score,
+          feedback: resp.feedback,
+          rubricChecks: rubric,
+        };
+      }
+
+      // 中間ターン: dialogue のみ更新 (同じ race guard で並行 finalize と衝突しない)
+      const updated = await db
+        .update(attempts)
+        .set({ dialogue: nextDialogue })
+        .where(and(eq(attempts.id, prev.id), eq(attempts.userId, ctx.user.id), unfinalizedGuard))
+        .returning({ id: attempts.id });
+      if (updated.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "この attempt の対話採点は既に確定しています (並行 finalize)",
+        });
+      }
+      return {
+        attemptId: prev.id,
+        dialogue: nextDialogue,
+        finalized: false,
+        correct: prev.correct,
+        score: prev.score,
+        feedback: prev.feedback,
+        rubricChecks: prev.rubricChecks ?? [],
       };
     }),
 
