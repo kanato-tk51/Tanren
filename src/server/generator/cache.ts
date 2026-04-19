@@ -9,12 +9,16 @@ import {
   type ThinkingStyle,
 } from "@/db/schema";
 
+/** キャッシュとして有効な問題の生成年齢上限 (日)。pregen / fetchPastSummaries も
+ *  この定数を参照する (Codex Round 2 指摘: 30 を複数箇所ハードコードしていた)。 */
+export const CACHE_WINDOW_DAYS = 30;
+
 export type CacheLookupInput = {
   conceptId: string;
   type: QuestionType;
   thinkingStyle: ThinkingStyle | null;
   difficulty: DifficultyLevel;
-  /** 直近 N 日 (default 30) の生成済みから返す */
+  /** 直近 N 日 (default CACHE_WINDOW_DAYS) の生成済みから返す */
   recentDays?: number;
 };
 
@@ -28,7 +32,7 @@ export async function findCachedQuestion(
   db: Db,
   input: CacheLookupInput,
 ): Promise<Question | null> {
-  const windowDays = input.recentDays ?? 30;
+  const windowDays = input.recentDays ?? CACHE_WINDOW_DAYS;
   const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
 
   const predicates = [

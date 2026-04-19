@@ -15,7 +15,7 @@ import { MODEL_MAIN } from "@/lib/openai/models";
 
 import { fetchUnresolvedMisconceptionsForGeneration } from "../grader/extract-misconception";
 
-import { findCachedQuestion } from "./cache";
+import { CACHE_WINDOW_DAYS, findCachedQuestion } from "./cache";
 import { buildMcqPrompt, MCQ_PROMPT_VERSION } from "./prompts";
 import { GeneratedMcqSchema, MCQ_JSON_SCHEMA, type GeneratedMcq } from "./schema";
 
@@ -30,6 +30,14 @@ export type GenerateMcqInput = {
    * 注入する (issue #19, docs/03 §3.4.1)。未指定なら注入しない。
    */
   userId?: string;
+  /**
+   * 生成した問題を「配信済み」としてマークするか (default: true)。
+   * 通常 request path では出題と同時に insert するので true (serveCount=1, lastServedAt=now)。
+   * pregen path (issue #39) では insert だけ先に行いユーザーにはまだ配信していないので
+   * false を渡す。false なら serveCount=0, lastServedAt=null で「untouched inventory」扱いになり
+   * findCachedQuestion の「未使用を優先」ソートで最優先になる (Codex Round 2 指摘)。
+   */
+  markAsServed?: boolean;
 };
 
 export type GenerateMcqResult = {
@@ -39,7 +47,7 @@ export type GenerateMcqResult = {
 
 /** 直近 30 日の出題要約文 (prompt の重複回避ヒント用、retired を除外して新しい順) */
 async function fetchPastSummaries(conceptId: string, max = 5): Promise<string[]> {
-  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const since = new Date(Date.now() - CACHE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const rows = await getDb()
     .select({ prompt: questions.prompt })
     .from(questions)
@@ -90,7 +98,7 @@ async function countCachedQuestions(params: {
   difficulty: DifficultyLevel;
   thinkingStyle: ThinkingStyle | null;
 }): Promise<number> {
-  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const since = new Date(Date.now() - CACHE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const db = getDb();
   const predicates = [
     eq(questions.conceptId, params.conceptId),
@@ -206,6 +214,10 @@ export async function generateMcq(
   const generated = await llm({ model: MODEL_MAIN, system, user });
 
   const now = new Date();
+  // markAsServed の default は「request path 経由で直ちに配信される前提」の true。
+  // pregen (issue #39) は false を渡して untouched inventory として残し、findCachedQuestion
+  // の「last_served_at IS NULL DESC」で最優先される状態にする。
+  const markAsServed = input.markAsServed ?? true;
   const [inserted] = await db
     .insert(questions)
     .values({
@@ -221,12 +233,12 @@ export async function generateMcq(
       tags: generated.tags,
       generatedBy: MODEL_MAIN,
       promptVersion: MCQ_PROMPT_VERSION,
-      // 新規問題は出題時点で配信済みとマークする (次回は別問題が未使用として優先される)。
+      // 配信済みなら serveCount=1 / lastServedAt=now、untouched ストックなら 0 / null。
       // 誤概念矯正モード (user-specific な prompt で生成された問題) は共有キャッシュを
       // 汚染しないよう retired=true で保存し、cache 検索対象から除外する
       // (Codex Round 2 P1-b)。
-      serveCount: 1,
-      lastServedAt: now,
+      serveCount: markAsServed ? 1 : 0,
+      lastServedAt: markAsServed ? now : null,
       retired: correctiveMode,
       retiredReason: correctiveMode ? "corrective (user-specific misconception)" : null,
     })

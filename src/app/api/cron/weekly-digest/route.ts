@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getResend, resendFromEmail } from "@/lib/email/resend-client";
+import { verifyCronAuth } from "@/server/cron/auth";
 import { collectWeeklyDigestTargets, renderDigestHtml } from "@/server/digest/weekly-digest";
 
 export const dynamic = "force-dynamic";
@@ -17,17 +18,10 @@ export const dynamic = "force-dynamic";
  * 戻り値: { sent: number, skipped: number, errors: Array<{userId, error}> }
  */
 export async function GET(req: Request) {
-  // CRON_SECRET 認可。
-  // - production: 必ず設定されていないと 500 (fail-closed、Codex Round 1 指摘 C)
-  // - preview / dev: 未設定ならスキップ (ローカル動作を楽にする)
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    if (process.env.VERCEL_ENV === "production") {
-      return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
-    }
-  } else if (req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  // CRON_SECRET 認可 (src/server/cron/auth.ts に集約、Codex PR#83 Round 5 指摘 #3)。
+  // production のみ fail-closed。メール送信はコスト低なので preview も bypass 許容。
+  const authFail = verifyCronAuth(req, { failClosedOn: "production" });
+  if (authFail) return authFail;
 
   const resend = getResend();
   const from = resendFromEmail();
