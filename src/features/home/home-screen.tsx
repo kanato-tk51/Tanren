@@ -72,10 +72,11 @@ export function HomeScreen({ initialUser }: { initialUser: InitialHomeUser }) {
     }
   }
 
-  // tRPC / DB 障害と「ログアウト済み」を UI 上でも区別する
+  // tRPC / DB 障害と「ログアウト済み」を UI 上でも区別する。`my-auto` は flex-col の
+  // 親 (page.tsx の main) で縦方向に中央寄せする (Codex PR#85 Round 3 指摘 #1)。
   if (me.isError) {
     return (
-      <Card className="w-full max-w-md">
+      <Card className="my-auto w-full max-w-md">
         <CardHeader>
           <CardTitle>読み込みに失敗しました</CardTitle>
           <CardDescription>tRPC / DB に到達できませんでした。</CardDescription>
@@ -95,7 +96,7 @@ export function HomeScreen({ initialUser }: { initialUser: InitialHomeUser }) {
 
   if (!me.data || !me.data.authenticated) {
     return (
-      <Card className="w-full max-w-md">
+      <Card className="my-auto w-full max-w-md">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5" /> Tanren
