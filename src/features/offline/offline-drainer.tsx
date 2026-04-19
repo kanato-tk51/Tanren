@@ -3,7 +3,12 @@
 import { TRPCClientError } from "@trpc/client";
 import { useEffect } from "react";
 
-import { incrementRetryOrRemove, listPendingSubmits, removeSubmit } from "@/lib/offline/queue";
+import {
+  incrementRetryOrRemove,
+  listPendingSubmits,
+  markAsSubmitted,
+  removeSubmit,
+} from "@/lib/offline/queue";
 import { useOnlineStatus } from "@/lib/offline/use-online-status";
 import { trpc } from "@/lib/trpc/react";
 
@@ -57,10 +62,6 @@ export function OfflineDrainer({ userId }: { userId: string }) {
     let cancelled = false;
     let inFlight = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    // submit は成功したが removeSubmit が失敗したエントリ。次 pass では re-submit せず
-    // remove のみ試行する (Codex Round 10 指摘: 再送すると pendingQuestionId 不一致で
-    // BAD_REQUEST になり FIFO がブロックされるため分離)。
-    const submittedPendingRemove = new Set<string>();
 
     const scheduleRetry = () => {
       if (cancelled || retryTimer) return;
@@ -84,11 +85,12 @@ export function OfflineDrainer({ userId }: { userId: string }) {
             await removeSubmit(p.clientId);
             continue;
           }
-          if (submittedPendingRemove.has(p.clientId)) {
-            // 前 pass で submit は通っているので、cleanup だけ再試行 (再 submit は禁止)。
+          if (p.submittedAt !== undefined) {
+            // 前 pass で submit は成功しているので、cleanup だけ再試行 (再 submit 禁止)。
+            // submittedAt は IndexedDB 側の永続フィールドなので remount / reload 後も
+            // 残る (Codex Round 11 指摘: in-memory Set だと mount 跨ぎで消失する)。
             try {
               await removeSubmit(p.clientId);
-              submittedPendingRemove.delete(p.clientId);
             } catch {
               hadFailure = true;
               break;
@@ -113,11 +115,21 @@ export function OfflineDrainer({ userId }: { userId: string }) {
             hadFailure = true;
             break;
           }
+          // submit 成功。removeSubmit 前に submittedAt を永続化しておくことで、
+          // 直後の removeSubmit が失敗しても次 pass / remount 後でも re-submit を回避できる。
+          try {
+            await markAsSubmitted(p.clientId);
+          } catch {
+            // 印を付けられなかった場合は安全側で break。次 pass で submit が再走する
+            // と pendingQuestionId 不一致で BAD_REQUEST になるのを避けるため、
+            // ここでは incrementRetry せずに break (UNAUTHORIZED と同じ扱い)。
+            hadFailure = true;
+            break;
+          }
           try {
             await removeSubmit(p.clientId);
           } catch {
-            // submit は成功済み。次 pass で remove だけ再試行する。
-            submittedPendingRemove.add(p.clientId);
+            // submit は成功済み & submittedAt 印あり。次 pass で remove だけ再試行する。
             hadFailure = true;
             break;
           }

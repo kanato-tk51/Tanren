@@ -47,6 +47,11 @@ export type PendingSubmit = {
   enqueuedAt: string;
   /** drain 失敗回数 (初期値 0)。MAX_RETRY_COUNT 超えで破棄 */
   retryCount?: number;
+  /** submit 成功 + removeSubmit 失敗で cleanup 待ちになった時刻 (ISO 8601)。
+   *  セットされていれば drainer は re-submit せず removeSubmit のみ再試行する。
+   *  remount / effect 張り直しで消える in-memory Set だと race の永続化に足りない
+   *  ので IndexedDB 行自体に印を付ける (Codex Round 11 指摘)。 */
+  submittedAt?: string;
 };
 
 /** IndexedDB の内部 primary key (autoIncrement)。保存時だけ付与。 */
@@ -137,6 +142,33 @@ export async function removeSubmit(clientId: string): Promise<void> {
         },
         (err) => reject(err),
       );
+      tx.onerror = () => reject(tx.error ?? new Error("IndexedDB tx failed"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** submit 成功後 removeSubmit が失敗したエントリに「cleanup 待ち」マークを付ける
+ *  (Codex Round 11 指摘)。存在しない clientId はスキップ。 */
+export async function markAsSubmitted(clientId: string): Promise<void> {
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_SUBMITS, "readwrite");
+      const store = tx.objectStore(STORE_SUBMITS);
+      const idx = store.index(IDX_CLIENT_ID);
+      const getReq = idx.get(clientId);
+      getReq.onsuccess = () => {
+        const current = getReq.result as StoredSubmit | undefined;
+        if (!current) {
+          resolve();
+          return;
+        }
+        store.put({ ...current, submittedAt: new Date().toISOString() });
+      };
+      getReq.onerror = () => reject(getReq.error ?? new Error("IndexedDB get failed"));
+      tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error ?? new Error("IndexedDB tx failed"));
     });
   } finally {
