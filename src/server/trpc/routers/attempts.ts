@@ -142,17 +142,14 @@ export const attemptsRouter = router({
     }),
 
   /**
-   * 「詳しく聞く用にコピー」ボタン押下時に呼ぶ (issue #16)。
-   *
-   * 実際のテキスト生成は `src/lib/share/copy-for-llm.ts` でクライアント側に行い、
-   * このエンドポイントはカウンタ (attempts.copied_for_external) を +1 するだけ。
-   * 利用率の指標 (docs/09 success metrics) として集計するためのもの。
-   */
-  /**
    * design 対話採点の follow-up (issue #35)。
    * 既存 attempt (type='design') に対してユーザーの追加メッセージを投げ、LLM の次ターンを得る。
    * AI が 3 ターン発話済みなら 400 (BAD_REQUEST)。LLM が finalized=true を返したら
    * correct / score / feedback / rubricChecks を最終値で上書きし、mastery も更新する。
+   *
+   * Race 対策: SELECT→LLM→UPDATE の間に他リクエストで finalize されたら、UPDATE の
+   * WHERE 句に含める `dialogue->>'finalized' = 'false'` guard で 0 行更新を検知し、
+   * 「既に確定済み (並行 finalize)」BAD_REQUEST を返す (Codex Round 1 指摘 #1)。
    */
   followUp: protectedProcedure
     .input(
@@ -299,6 +296,13 @@ export const attemptsRouter = router({
       };
     }),
 
+  /**
+   * 「詳しく聞く用にコピー」ボタン押下時に呼ぶ (issue #16)。
+   *
+   * 実際のテキスト生成は `src/lib/share/copy-for-llm.ts` でクライアント側に行い、
+   * このエンドポイントはカウンタ (attempts.copied_for_external) を +1 するだけ。
+   * 利用率の指標 (docs/09 success metrics) として集計するためのもの。
+   */
   markCopiedForExternal: protectedProcedure
     .input(z.object({ attemptId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DialogueTurn } from "@/db/schema";
+import { MODEL_MAIN } from "@/lib/openai/models";
 
 import {
   buildDesignPrompt,
@@ -70,7 +71,7 @@ describe("runDesignTurn", () => {
     expect(out.fallback).toBe(false);
     expect(out.response.finalized).toBe(false);
     expect(out.response.nextQuestion).toBe("具体的な QPS は?");
-    expect(out.model).toBe("gpt-5");
+    expect(out.model).toBe(MODEL_MAIN);
   });
 
   it("forceFinalize のときに LLM が finalized=false を返したら強制確定 (fallback=false)", async () => {
