@@ -75,6 +75,13 @@ export function WebPushToggle() {
         setStatus(permission === "denied" ? "denied" : "unsubscribed");
         return;
       }
+      // RegisterServiceWorker (src/features/pwa/register-sw.tsx) は production のみ
+      // register する。dev で Web Push トグルを押すと serviceWorker.ready が永遠に解決せず
+      // ハングするため、未登録ならここで明示的に register する (Codex Round 3 指摘 #2)。
+      const existing = await navigator.serviceWorker.getRegistration();
+      if (!existing) {
+        await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      }
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
