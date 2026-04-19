@@ -1,5 +1,6 @@
 "use client";
 
+import { TRPCClientError } from "@trpc/client";
 import { useEffect } from "react";
 
 import { incrementRetryOrRemove, listPendingSubmits, removeSubmit } from "@/lib/offline/queue";
@@ -24,19 +25,28 @@ import { trpc } from "@/lib/trpc/react";
  *  server 側の pendingQuestionId チェックは「次の未採点 questionId だけを受け付ける」ため、
  *  先頭 N が失敗したまま N+1 を送ると BAD_REQUEST になるだけでなく FIFO も崩れる。
  *
- *  同一 online セッション内の再試行: 失敗で break した後、単純な遅延で自己再起動する
- *  (Codex Round 8 指摘 #2)。一時的な 5xx / timeout で online のまま滞留するのを防止。
- *  retryCount 上限 (MAX_RETRY_COUNT) を queue 層で別途持っているので、再起動ループは
- *  自然に収束する。
+ *  再試行: 失敗で break した後、単純な遅延で自己再起動する (Codex Round 8 指摘 #2)。
+ *  一時的な 5xx / timeout で online のまま滞留するのを防止。listPendingSubmits 等の
+ *  IndexedDB 側失敗も同じ経路で再スケジュールする (Codex Round 9 指摘 #2)。
+ *
+ *  UNAUTHORIZED (セッション切れ): retryCount は消費せずキューを保持する
+ *  (Codex Round 9 指摘 #1)。再ログイン後の drainer remount で再度 drain される。
+ *  retry 連鎖に含めると再ログインなしでいずれキューから削除されて解答が失われる。
  *
  *  マルチユーザー端末対策: drain 前に現在の userId と一致しないエントリは破棄する
  *  (enqueue 時の userId を PendingSubmit に保存、Codex Round 1 指摘 #3a)。
  */
 
-/** 1 回の drain pass で submit 失敗を検知したあと、同じ online セッション内で再試行
- *  するまでの遅延 (ms)。サーバー側の一時障害 (5xx / timeout) の典型的な復旧時間を
- *  想定して 30 秒。 */
 const DRAIN_RETRY_DELAY_MS = 30_000;
+
+function isUnauthorizedError(err: unknown): boolean {
+  if (err instanceof TRPCClientError) {
+    // tRPC v11 では data.code に string の SPECERROR が入る (procedure の TRPCError.code)
+    const code = (err.data as { code?: string } | undefined)?.code;
+    if (code === "UNAUTHORIZED") return true;
+  }
+  return false;
+}
 
 export function OfflineDrainer({ userId }: { userId: string }) {
   const online = useOnlineStatus();
@@ -48,9 +58,19 @@ export function OfflineDrainer({ userId }: { userId: string }) {
     let inFlight = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
+    const scheduleRetry = () => {
+      if (cancelled || retryTimer) return;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void drainOnce();
+      }, DRAIN_RETRY_DELAY_MS);
+    };
+
     const drainOnce = async () => {
       if (cancelled || inFlight) return;
       inFlight = true;
+      // outer catch に入るケース (IndexedDB 失敗) でも再試行したいので、hadFailure を
+      // try/finally の外で管理。
       let hadFailure = false;
       try {
         const pending = await listPendingSubmits();
@@ -70,20 +90,25 @@ export function OfflineDrainer({ userId }: { userId: string }) {
               ...(p.elapsedMs !== undefined ? { elapsedMs: p.elapsedMs } : {}),
             });
             await removeSubmit(p.clientId);
-          } catch {
-            // 失敗は retryCount を +1。上限超えで破棄 (poison queue 防止)
+          } catch (err) {
+            if (isUnauthorizedError(err)) {
+              // 再ログイン後に remount で再 drain されるので retryCount を消費しない。
+              // 自己再試行もスキップ (auth が戻るまで 30 秒おきに失敗し続けても意味なし)。
+              break;
+            }
             await incrementRetryOrRemove(p.clientId).catch(() => {});
             hadFailure = true;
             break;
           }
         }
       } catch {
-        // IndexedDB 取得自体に失敗したケース: 次回 online で再試行
+        // listPendingSubmits / removeSubmit 等の IndexedDB 失敗。次回 retry で再試行。
+        hadFailure = true;
       } finally {
         inFlight = false;
       }
-      if (hadFailure && !cancelled) {
-        retryTimer = setTimeout(drainOnce, DRAIN_RETRY_DELAY_MS);
+      if (hadFailure) {
+        scheduleRetry();
       }
     };
 
