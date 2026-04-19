@@ -73,6 +73,7 @@ pnpm add -D drizzle-kit vitest @vitest/coverage-v8 @vitejs/plugin-react \
 
 その後 `package.json` の `scripts` に以下を足す:
 
+<!-- prettier-ignore -->
 ```jsonc
 {
   "scripts": {
@@ -89,10 +90,10 @@ pnpm add -D drizzle-kit vitest @vitest/coverage-v8 @vitejs/plugin-react \
     "db:seed": "./scripts/with-vercel-env.sh tsx src/db/seed/run.ts",
     "db:studio": "./scripts/with-vercel-env.sh drizzle-kit studio",
     "auth:bootstrap": "./scripts/with-vercel-env.sh tsx src/server/auth/bootstrap.ts",
-    "prepare": "lefthook install",
+    "prepare": "lefthook install"
   },
   "packageManager": "pnpm@10.0.0",
-  "engines": { "node": ">=22.0.0 <23.0.0" },
+  "engines": { "node": ">=22.0.0 <23.0.0" }
 }
 ```
 
@@ -295,8 +296,8 @@ hint:   git config --unset-all --local core.hooksPath
 git config --unset-all --local core.hooksPath
 pnpm install
 
-# B) lefthook に hooksPath を上書きさせる
-pnpm dlx lefthook install --reset-hooks-path
+# B) lefthook の --reset-hooks-path で unset を自動化する (A と同じ効果)
+pnpm lefthook install --reset-hooks-path
 ```
 
-`prepare` スクリプトに `--force` / `--reset-hooks-path` を入れる案もあるが、他ツールが hooksPath を意図的に差し替えているケースを黙って上書きしてしまうため採用しない (CLAUDE.md §3 「勝手に設定を上書きしない」方針)。
+`prepare` スクリプトに `--force` / `--reset-hooks-path` を入れる案もあるが、他ツールが hooksPath を意図的に差し替えているケースを黙って上書きしてしまうため採用しない (個人プロダクトでも他人の環境に副作用を残さない方針)。
