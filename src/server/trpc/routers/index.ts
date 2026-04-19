@@ -3,6 +3,7 @@ import { attemptsRouter } from "./attempts";
 import { authRouter } from "./auth";
 import { codeRouter } from "./code";
 import { customRouter } from "./custom";
+import { homeRouter } from "./home";
 import { insightsRouter } from "./insights";
 import { onboardingRouter } from "./onboarding";
 import { pingRouter } from "./ping";
@@ -15,6 +16,7 @@ export const appRouter = router({
   attempts: attemptsRouter,
   code: codeRouter,
   custom: customRouter,
+  home: homeRouter,
   insights: insightsRouter,
   onboarding: onboardingRouter,
   questions: questionsRouter,

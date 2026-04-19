@@ -16,28 +16,13 @@ import {
 import type { DomainId } from "@/db/schema";
 import { DrillScreen } from "@/features/drill/drill-screen";
 import { useDrillStore } from "@/features/drill/drill-state";
+import { DOMAIN_LABELS } from "@/lib/domain-labels";
 import { trpc } from "@/lib/trpc/react";
 
 type Phase =
   | { kind: "idle" }
   | { kind: "running"; sessionId: string }
   | { kind: "error"; message: string };
-
-const DOMAIN_LABELS: Record<DomainId, string> = {
-  programming: "Programming",
-  dsa: "DSA",
-  os: "OS",
-  network: "Network",
-  db: "Database",
-  security: "Security",
-  distributed: "Distributed",
-  design: "Design",
-  devops: "DevOps",
-  tools: "Tools",
-  low_level: "Low-level",
-  ai_ml: "AI / ML",
-  frontend: "Frontend",
-};
 
 /**
  * Deep Dive セッション画面 (issue #28)。

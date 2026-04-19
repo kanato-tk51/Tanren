@@ -14,9 +14,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
-import { TIER_1_DOMAIN_IDS, type DomainId, type Tier1DomainId } from "@/db/schema";
+import { TIER_1_DOMAIN_IDS, type Tier1DomainId } from "@/db/schema";
 import { DrillScreen } from "@/features/drill/drill-screen";
 import { useDrillStore } from "@/features/drill/drill-state";
+import { DOMAIN_LABELS } from "@/lib/domain-labels";
 import { trpc } from "@/lib/trpc/react";
 
 type Step =
@@ -42,22 +43,6 @@ const WELCOME_SLIDES: Array<{ icon: typeof Brain; title: string; body: string }>
     body: "次の数問で出発点を測ります。3〜5 分で終わります。",
   },
 ];
-
-const TIER_1_LABELS: Record<DomainId, string> = {
-  programming: "Programming",
-  dsa: "DSA",
-  os: "OS",
-  network: "Network",
-  db: "Database",
-  security: "Security",
-  distributed: "Distributed",
-  design: "Design",
-  devops: "DevOps",
-  tools: "Tools",
-  low_level: "Low-level",
-  ai_ml: "AI / ML",
-  frontend: "Frontend",
-};
 
 type SelfLevel = "beginner" | "junior" | "mid" | "senior";
 
@@ -208,7 +193,7 @@ export function OnboardingScreen() {
                         : "border-border hover:border-muted-foreground",
                     )}
                   >
-                    {TIER_1_LABELS[d]}
+                    {DOMAIN_LABELS[d]}
                   </button>
                 );
               })}
