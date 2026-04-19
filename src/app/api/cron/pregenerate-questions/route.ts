@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { runPregenerateBatch } from "@/server/batch/pregenerate";
+import { verifyCronAuth } from "@/server/cron/auth";
 
 export const dynamic = "force-dynamic";
 /** LLM 呼び出しで Vercel Functions default 10s を超えるため 60s まで拡張 (Hobby 上限) */
@@ -12,21 +13,13 @@ export const maxDuration = 60;
  *
  * Vercel Cron 側は Hobby プランなら日次 (schedule: 18:00 UTC = 03:00 JST)。
  * Pro プランなら 4 時間ごと (0/4 * * *) に縮退も選択肢 (受け入れ基準の注記)。
+ *
+ * 認可: production + preview で CRON_SECRET 必須 (preview も public URL で LLM 予算保護)。
+ * dev / ローカルのみ bypass 可。
  */
 export async function GET(req: Request) {
-  // production / preview で CRON_SECRET 未設定は fail-closed (Codex Round 3 指摘: preview も
-  // public URL なので no-auth だと外部から LLM 予算を消費されうる)。dev / ローカルのみ bypass 許可。
-  const cronSecret = process.env.CRON_SECRET;
-  const requiresAuth =
-    process.env.VERCEL_ENV === "production" || process.env.VERCEL_ENV === "preview";
-  if (!cronSecret) {
-    if (requiresAuth) {
-      return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
-    }
-  } else if (req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-
+  const authFail = verifyCronAuth(req, { failClosedOn: "production-and-preview" });
+  if (authFail) return authFail;
   const result = await runPregenerateBatch();
   return NextResponse.json(result);
 }

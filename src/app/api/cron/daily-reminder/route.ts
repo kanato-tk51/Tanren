@@ -5,6 +5,7 @@ import { getDb } from "@/db/client";
 import { pushSubscriptions, users } from "@/db/schema";
 import { appUrl } from "@/lib/env";
 import { sendPushNotification } from "@/lib/push/web-push-client";
+import { verifyCronAuth } from "@/server/cron/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -17,14 +18,10 @@ export const dynamic = "force-dynamic";
  * 本番で CRON_SECRET 未設定は fail-closed で 500 (Weekly Digest と同じ方針)。
  */
 export async function GET(req: Request) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    if (process.env.VERCEL_ENV === "production") {
-      return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
-    }
-  } else if (req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  // CRON_SECRET 認可 (src/server/cron/auth.ts に集約、Codex PR#83 Round 5 指摘 #3)。
+  // push 送信は RapidAPI 的なコスト課金対象なので preview も fail-closed 側に倒す。
+  const authFail = verifyCronAuth(req, { failClosedOn: "production-and-preview" });
+  if (authFail) return authFail;
 
   const db = getDb();
   const rows = await db

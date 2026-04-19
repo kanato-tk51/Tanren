@@ -137,6 +137,8 @@ export async function findDeficitCombos(params?: { now?: Date }): Promise<Combo[
 export async function runPregenerateBatch(args?: {
   maxPerRun?: number;
   deadlineMs?: number;
+  /** 1 call あたりの想定実行時間 (ms)。次 call 開始前の残り時間チェックに使う */
+  expectedCallMs?: number;
   now?: () => number;
 }): Promise<PrebatchResult> {
   const maxPerRun = Math.min(Math.max(args?.maxPerRun ?? PREBATCH_MAX_PER_RUN, 0), 50);
@@ -144,6 +146,9 @@ export async function runPregenerateBatch(args?: {
   const startedAt = now();
   // maxDuration=60s の手前で自主 deadline (findDeficitCombos 等の時間分 5s バッファ)
   const deadlineMs = args?.deadlineMs ?? 55_000;
+  // gpt-5 1 call あたりの想定時間 (Codex Round 5 指摘 #1)。残り時間がこれ未満なら新規 call を
+  // 開始しない。これで deadline 直前に call 開始 → 60s 枠超過 → silent kill を回避。
+  const expectedCallMs = args?.expectedCallMs ?? 12_000;
   const combos = await findDeficitCombos();
   const plan = combos.slice(0, maxPerRun);
   let generated = 0;
@@ -151,7 +156,8 @@ export async function runPregenerateBatch(args?: {
   let skipped = 0;
   const errors: PrebatchResult["errors"] = [];
   for (let i = 0; i < plan.length; i++) {
-    if (now() - startedAt > deadlineMs) {
+    const elapsed = now() - startedAt;
+    if (elapsed + expectedCallMs > deadlineMs) {
       skipped = plan.length - i; // 残りを skipped に計上
       break;
     }
