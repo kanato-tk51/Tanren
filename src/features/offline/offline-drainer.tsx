@@ -40,18 +40,64 @@ import { trpc } from "@/lib/trpc/react";
  *
  *  マルチユーザー端末対策: drain 前に現在の userId と一致しないエントリは破棄する
  *  (enqueue 時の userId を PendingSubmit に保存、Codex Round 1 指摘 #3a)。
+ *
+ *  クロスタブ排他: drain ループ全体を `navigator.locks.request(DRAIN_LOCK_NAME)` で包む
+ *  (Codex Round 13 指摘 #1)。同一 origin で複数タブ / iframe が mount されたとき、
+ *  各 drainer が同じ entry を同時 submit して BAD_REQUEST → retryCount 消費になるのを防ぐ。
+ *
+ *  submittedAt 永続化の fallback: IndexedDB へ印を付けられないときは localStorage にも
+ *  clientId を積む (Codex Round 13 指摘 #2)。localStorage は IndexedDB とは別 backend
+ *  なので両方同時に壊れる可能性は小さい。drain 先頭で両方を読んで merge する。
  */
 
 const DRAIN_RETRY_DELAY_MS = 30_000;
+const DRAIN_LOCK_NAME = "tanren-offline-drainer";
 
-/** submit 成功直後の markAsSubmitted 永続化のインライン retry 回数。IndexedDB 側の
- *  一時障害で 1 回失敗したまま break すると、次 pass で submittedAt 印なしで entry が
- *  再読み込みされて再 submit → pendingQuestionId 不一致で BAD_REQUEST → retryCount
- *  消化 → 回答ロストになる (Codex Round 12 指摘)。インライン retry で印の永続化を
- *  できるだけ保証する。上限到達時は break し、印の永続化が致命的に失敗した状態で
- *  データロストしないよう `retryCount` を消費しない (UNAUTHORIZED と同じ扱い)。 */
+/** submit 成功直後の markAsSubmitted 永続化のインライン retry 回数 + backoff。 */
 const MARK_PERSIST_ATTEMPTS = 5;
 const MARK_PERSIST_DELAY_MS = 200;
+
+/** localStorage fallback key。値は JSON array of clientId。 */
+const LS_SUBMITTED_KEY = "tanren-offline-submitted-fallback";
+
+function loadLocalSubmittedSet(): Set<string> {
+  if (typeof localStorage === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(LS_SUBMITTED_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr)
+      ? new Set(arr.filter((v): v is string => typeof v === "string"))
+      : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function addLocalSubmitted(clientId: string): boolean {
+  if (typeof localStorage === "undefined") return false;
+  try {
+    const set = loadLocalSubmittedSet();
+    if (set.has(clientId)) return true;
+    set.add(clientId);
+    localStorage.setItem(LS_SUBMITTED_KEY, JSON.stringify([...set]));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function removeLocalSubmitted(clientId: string): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const set = loadLocalSubmittedSet();
+    if (!set.has(clientId)) return;
+    set.delete(clientId);
+    localStorage.setItem(LS_SUBMITTED_KEY, JSON.stringify([...set]));
+  } catch {
+    // 読み書きともに壊れている状態。どうしようもないので諦める。
+  }
+}
 
 async function persistMarkAsSubmitted(clientId: string): Promise<boolean> {
   for (let i = 0; i < MARK_PERSIST_ATTEMPTS; i++) {
@@ -64,7 +110,8 @@ async function persistMarkAsSubmitted(clientId: string): Promise<boolean> {
       }
     }
   }
-  return false;
+  // IndexedDB 書き込みが完全に不通 → localStorage に退避。drain 先頭で merge される。
+  return addLocalSubmitted(clientId);
 }
 
 function isUnauthorizedError(err: unknown): boolean {
@@ -94,26 +141,24 @@ export function OfflineDrainer({ userId }: { userId: string }) {
       }, DRAIN_RETRY_DELAY_MS);
     };
 
-    const drainOnce = async () => {
-      if (cancelled || inFlight) return;
-      inFlight = true;
-      // outer catch (IndexedDB 失敗) でも再試行したいので hadFailure を try/finally の外で管理。
+    const drainBody = async (): Promise<boolean> => {
+      // return: hadFailure
       let hadFailure = false;
       try {
         const pending = await listPendingSubmits();
+        const localSubmitted = loadLocalSubmittedSet();
         for (const p of pending) {
           if (cancelled) break;
           if (p.userId !== userId) {
-            // 別ユーザーの queue は drain せず破棄 (cross-user replay 防止)
             await removeSubmit(p.clientId);
             continue;
           }
-          if (p.submittedAt !== undefined) {
-            // 前 pass で submit は成功しているので、cleanup だけ再試行 (再 submit 禁止)。
-            // submittedAt は IndexedDB 側の永続フィールドなので remount / reload 後も
-            // 残る (Codex Round 11 指摘: in-memory Set だと mount 跨ぎで消失する)。
+          const alreadySubmitted = p.submittedAt !== undefined || localSubmitted.has(p.clientId);
+          if (alreadySubmitted) {
             try {
               await removeSubmit(p.clientId);
+              // IndexedDB 側の remove が成功したので localStorage fallback も掃除
+              removeLocalSubmitted(p.clientId);
             } catch {
               hadFailure = true;
               break;
@@ -130,42 +175,54 @@ export function OfflineDrainer({ userId }: { userId: string }) {
             });
           } catch (err) {
             if (isUnauthorizedError(err)) {
-              // 再ログイン後に drainer remount で再 drain されるので retryCount を消費しない。
-              // 自己再試行もスキップ (auth が戻るまで 30 秒おきに失敗し続けても意味なし)。
               break;
             }
             await incrementRetryOrRemove(p.clientId).catch(() => {});
             hadFailure = true;
             break;
           }
-          // submit 成功。removeSubmit 前に submittedAt を永続化しておくことで、
-          // 直後の removeSubmit が失敗しても次 pass / remount 後でも re-submit を回避できる。
-          // 1 回だけだと一時的な IndexedDB 失敗で印が残らず、次 pass で再 submit されて
-          // BAD_REQUEST → 回答ロストになりうる (Codex Round 12 指摘)。インライン retry で
-          // 印の永続化をできるだけ保証する。
           const marked = await persistMarkAsSubmitted(p.clientId);
           if (!marked) {
-            // 上限 retry でも印が付けられなかった = IndexedDB が深刻に壊れている。
-            // 回答を失わないように retryCount は消費せず break (UNAUTHORIZED と同じ扱い)。
-            // 次 pass (ユーザー操作で mount し直し or online 再遷移) で印の付与から再試行。
+            // IndexedDB + localStorage の両方で印を付けられなかった = ブラウザ storage
+            // レイヤが壊滅的。安全側で break、retryCount は消費しない。
             hadFailure = true;
             break;
           }
           try {
             await removeSubmit(p.clientId);
+            removeLocalSubmitted(p.clientId);
           } catch {
-            // submit は成功済み & submittedAt 印あり。次 pass で remove だけ再試行する。
             hadFailure = true;
             break;
           }
         }
       } catch {
-        // listPendingSubmits 等の IndexedDB 失敗。次回 retry で再試行。
         hadFailure = true;
+      }
+      return hadFailure;
+    };
+
+    const drainOnce = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      let hadFailure = false;
+      try {
+        if (typeof navigator !== "undefined" && "locks" in navigator) {
+          // Web Locks API でタブ / iframe 間の排他。`exclusive` (default) なので同一
+          // origin で同時に保持できるのは 1 つだけ。ロック取得までの待機は他タブの
+          // drain 完了まで (短時間)。
+          await navigator.locks.request(DRAIN_LOCK_NAME, async () => {
+            if (cancelled) return;
+            hadFailure = await drainBody();
+          });
+        } else {
+          // 古いブラウザ fallback: ロックなしで実行。複数タブでの race は発生しうる。
+          hadFailure = await drainBody();
+        }
       } finally {
         inFlight = false;
       }
-      if (hadFailure) {
+      if (hadFailure && !cancelled) {
         scheduleRetry();
       }
     };
