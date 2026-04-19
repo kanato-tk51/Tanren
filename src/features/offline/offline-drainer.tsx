@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 import { incrementRetryOrRemove, listPendingSubmits, removeSubmit } from "@/lib/offline/queue";
 import { useOnlineStatus } from "@/lib/offline/use-online-status";
@@ -17,27 +17,45 @@ import { trpc } from "@/lib/trpc/react";
  *  onError からの wire-up は follow-up で対応、Codex Round 1 指摘 #2)。そのため現時点では
  *  queue は空のまま drainer は no-op。
  *
- *  mount 位置: HomeScreen のような認証済みページの内部で呼ぶ。root layout に置くと
- *  公開ルート (/login 等) まで auth 解決を強制することになる (Codex Round 4 指摘 #3)。
- *  userId は既に server で解決済み initialUser から受け取る前提。follow-up で
- *  drill-screen に enqueue caller を配線する際に、drainer の置き場所も見直す。
+ *  mount 位置: `(app)/layout.tsx` で全認証ページに、HomeScreen 内部で `/` にも。/login など
+ *  公開ルートでは mount されない (Codex Round 3/4 指摘)。
+ *
+ *  FIFO 保証: 1 件でも失敗した時点で同一 drain pass は break する (Codex Round 8 指摘 #1)。
+ *  server 側の pendingQuestionId チェックは「次の未採点 questionId だけを受け付ける」ため、
+ *  先頭 N が失敗したまま N+1 を送ると BAD_REQUEST になるだけでなく FIFO も崩れる。
+ *
+ *  同一 online セッション内の再試行: 失敗で break した後、単純な遅延で自己再起動する
+ *  (Codex Round 8 指摘 #2)。一時的な 5xx / timeout で online のまま滞留するのを防止。
+ *  retryCount 上限 (MAX_RETRY_COUNT) を queue 層で別途持っているので、再起動ループは
+ *  自然に収束する。
  *
  *  マルチユーザー端末対策: drain 前に現在の userId と一致しないエントリは破棄する
  *  (enqueue 時の userId を PendingSubmit に保存、Codex Round 1 指摘 #3a)。
- *  永続失敗対策: drain 失敗時 retryCount を +1、MAX_RETRY_COUNT 超えで破棄 (同 #3c)。
  */
+
+/** 1 回の drain pass で submit 失敗を検知したあと、同じ online セッション内で再試行
+ *  するまでの遅延 (ms)。サーバー側の一時障害 (5xx / timeout) の典型的な復旧時間を
+ *  想定して 30 秒。 */
+const DRAIN_RETRY_DELAY_MS = 30_000;
+
 export function OfflineDrainer({ userId }: { userId: string }) {
   const online = useOnlineStatus();
-  const draining = useRef(false);
   const submitMut = trpc.session.submit.useMutation();
 
   useEffect(() => {
-    if (!online || draining.current) return;
-    draining.current = true;
-    (async () => {
+    if (!online) return;
+    let cancelled = false;
+    let inFlight = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const drainOnce = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      let hadFailure = false;
       try {
         const pending = await listPendingSubmits();
         for (const p of pending) {
+          if (cancelled) break;
           if (p.userId !== userId) {
             // 別ユーザーの queue は drain せず破棄 (cross-user replay 防止)
             await removeSubmit(p.clientId);
@@ -55,14 +73,26 @@ export function OfflineDrainer({ userId }: { userId: string }) {
           } catch {
             // 失敗は retryCount を +1。上限超えで破棄 (poison queue 防止)
             await incrementRetryOrRemove(p.clientId).catch(() => {});
+            hadFailure = true;
+            break;
           }
         }
       } catch {
-        // IndexedDB 取得自体に失敗したケース: 次の online で再試行
+        // IndexedDB 取得自体に失敗したケース: 次回 online で再試行
       } finally {
-        draining.current = false;
+        inFlight = false;
       }
-    })();
+      if (hadFailure && !cancelled) {
+        retryTimer = setTimeout(drainOnce, DRAIN_RETRY_DELAY_MS);
+      }
+    };
+
+    void drainOnce();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
     // submitMut は useMutation の返す object が内部 state 変更で別参照になりうるため、
     // deps に含めると effect が意図せず再発火する (Codex Round 1 指摘 #1)。
     // 参照は closure で固定で問題ない (mutateAsync 自体は破壊的な変化なし)。
