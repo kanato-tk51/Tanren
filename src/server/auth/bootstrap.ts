@@ -31,9 +31,12 @@ async function main() {
   }
   const allowed = process.env.GITHUB_ALLOWED_USER_ID;
   if (allowed && Number(allowed) !== githubUserId) {
+    // callback の allowlist と一致しない bootstrap はログイン不能な壊れた user 行を
+    // 作るだけなので即時 fail-closed (Codex PR#86 Round 6 指摘 #1)。
     console.error(
-      `warning: GITHUB_ALLOWED_USER_ID=${allowed} と一致しません。OAuth 照合で拒否される可能性があります。`,
+      `error: GITHUB_ALLOWED_USER_ID=${allowed} と一致しません。OAuth callback で拒否されるため bootstrap を中止します。`,
     );
+    process.exit(1);
   }
 
   const db = getDb();

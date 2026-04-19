@@ -46,7 +46,9 @@ CLAUDE.md §3「Clerk / Auth.js / OAuth を追加」禁止の例外として、*
 
 ### 初期ユーザー作成
 
-- `pnpm auth:bootstrap <github_user_id> [displayName]` で GitHub user id を users に紐付け
+- `pnpm auth:bootstrap <github_user_id> [displayName] [email]` で GitHub user id を users に紐付け
+  - `email` は既存の users 行 (ADR-0004 Passkey 時代に作られた行) と突合するマイグレーション用キー。省略した場合は、github_user_id=null の user が 1 件だけあればそれに紐付け、なければ新規 insert する。
+  - `GITHUB_ALLOWED_USER_ID` が env に設定されていて引数 `github_user_id` と一致しない場合は fail-closed で中止する (callback で `forbidden` になる壊れた行を作らないため)。
 - 初回フローは「GitHub でログイン」→ allowlist に該当するか → bootstrap 済みユーザーと突合 → session 発行
 
 ## Consequences
