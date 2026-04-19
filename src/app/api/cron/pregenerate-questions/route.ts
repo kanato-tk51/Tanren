@@ -14,9 +14,13 @@ export const maxDuration = 60;
  * Pro プランなら 4 時間ごと (0/4 * * *) に縮退も選択肢 (受け入れ基準の注記)。
  */
 export async function GET(req: Request) {
+  // production / preview で CRON_SECRET 未設定は fail-closed (Codex Round 3 指摘: preview も
+  // public URL なので no-auth だと外部から LLM 予算を消費されうる)。dev / ローカルのみ bypass 許可。
   const cronSecret = process.env.CRON_SECRET;
+  const requiresAuth =
+    process.env.VERCEL_ENV === "production" || process.env.VERCEL_ENV === "preview";
   if (!cronSecret) {
-    if (process.env.VERCEL_ENV === "production") {
+    if (requiresAuth) {
       return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
     }
   } else if (req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
