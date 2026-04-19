@@ -49,7 +49,8 @@ export async function fetchTrends(params: {
         sql<number>`sum(case when ${attempts.correct} = true then 1 else 0 end)::int`.as(
           "correct_count",
         ),
-      studyTimeSec: sql<number>`coalesce(sum(${attempts.elapsedMs}), 0)::int`.as("study_time_sec"),
+      // attempts.elapsedMs の単位はミリ秒なので sum もミリ秒。UI 側で分換算する (Codex Round 1 指摘)。
+      studyTimeMs: sql<number>`coalesce(sum(${attempts.elapsedMs}), 0)::int`.as("study_time_ms"),
     })
     .from(attempts)
     .where(and(eq(attempts.userId, params.userId), gte(attempts.createdAt, since)))
@@ -83,7 +84,7 @@ export async function fetchTrends(params: {
     const attemptCount = row?.attemptCount ?? 0;
     const correctCount = row?.correctCount ?? 0;
     // elapsedMs の合計は msec で入っている (docs/03 での記録単位)。分換算 (小数 1 桁丸め)
-    const studyTimeMs = row?.studyTimeSec ?? 0;
+    const studyTimeMs = row?.studyTimeMs ?? 0;
     const studyTimeMin = Math.round((studyTimeMs / 60000) * 10) / 10;
     points.push({
       date: iso,

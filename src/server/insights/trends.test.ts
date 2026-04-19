@@ -45,7 +45,7 @@ describe("fetchTrends", () => {
     const now = new Date("2026-04-18T05:00:00Z"); // JST 14:00 2026-04-18
     queue.push(() => [
       // 4/18 だけデータあり、他は欠損
-      { date: "2026-04-18", attemptCount: 3, correctCount: 2, studyTimeSec: 120000 },
+      { date: "2026-04-18", attemptCount: 3, correctCount: 2, studyTimeMs: 120000 },
     ]);
     const out = await fetchTrends({ userId: "u-1", days: 7, now });
     expect(out.points).toHaveLength(7);
@@ -69,11 +69,11 @@ describe("fetchTrends", () => {
     for (const p of out.points) expect(p.accuracyPct).toBe(0);
   });
 
-  it("studyTimeSec (ms 累積) を分に変換して小数 1 桁で丸める", async () => {
+  it("studyTimeMs (ms 累積) を分に変換して小数 1 桁で丸める", async () => {
     const now = new Date("2026-04-18T05:00:00Z");
     queue.push(() => [
       // 1,234,567 ms ≈ 20.6 分
-      { date: "2026-04-18", attemptCount: 1, correctCount: 1, studyTimeSec: 1_234_567 },
+      { date: "2026-04-18", attemptCount: 1, correctCount: 1, studyTimeMs: 1_234_567 },
     ]);
     const out = await fetchTrends({ userId: "u-1", days: 7, now });
     const today = out.points.at(-1)!;
