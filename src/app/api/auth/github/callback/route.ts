@@ -94,7 +94,13 @@ export async function GET(request: Request) {
   // verified を取得する。取れなければ skip (既存 email を上書きしない)。
   let primaryEmail: string | null | undefined = githubUser.email ?? undefined;
   if (!primaryEmail && !existing.email) {
-    primaryEmail = await fetchPrimaryEmail(accessToken);
+    // /user/emails は補完扱い。ネットワーク失敗やタイムアウトで login 全体を落とさない
+    // (Codex PR#86 Round 3 指摘 #2)。取れなければ email=null で続行する。
+    try {
+      primaryEmail = await fetchPrimaryEmail(accessToken);
+    } catch {
+      primaryEmail = null;
+    }
   }
 
   const patch: Partial<typeof users.$inferInsert> = {};

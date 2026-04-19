@@ -13,16 +13,21 @@ import {
 
 export const dynamic = "force-dynamic";
 
+function errorRedirect(request: Request, code: string): NextResponse {
+  const url = new URL("/login", new URL(request.url).origin);
+  url.searchParams.set("error", code);
+  return NextResponse.redirect(url);
+}
+
 /** GitHub OAuth フロー開始。state + code_verifier を cookie に保存して GitHub にリダイレクト。 */
 export async function GET(request: Request) {
   let config;
   try {
     config = loadGithubOAuthConfig();
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "GitHub OAuth env missing" },
-      { status: 500 },
-    );
+  } catch {
+    // callback と契約を揃える: /login?error=server_misconfigured に戻して UI 側の日本語
+    // メッセージを表示する (Codex PR#86 Round 3 指摘 #1)。
+    return errorRedirect(request, "server_misconfigured");
   }
 
   const pkce = generatePkce();
