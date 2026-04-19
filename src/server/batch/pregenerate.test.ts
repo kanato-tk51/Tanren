@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// mock chain: .from → .where → .groupBy → then (for query #2) or
+//             .from → then (for query #1 concepts)
 const queue: Array<() => unknown> = [];
 vi.mock("@/db/client", () => {
   function makeBuilder(): unknown {
     const b: Record<string, unknown> = {
       from: () => b,
       where: () => b,
-      limit: () => b,
+      groupBy: () => b,
       then: (onFulfilled: (v: unknown) => unknown) => {
         const handler = queue.shift();
         const result = handler ? handler() : [];
@@ -25,30 +27,39 @@ beforeEach(() => {
 });
 
 describe("findDeficitCombos", () => {
-  it("concept 0 件なら空配列", async () => {
+  it("concept 0 件なら空配列 (DB 2 回目 query は呼ばれない)", async () => {
     queue.push(() => []);
     const out = await findDeficitCombos();
     expect(out).toEqual([]);
   });
 
-  it("cache 不足の combo のみ返し、不足量降順 + 決定論順", async () => {
-    // concept 2 個、各 difficulty 1 個 → combo は (2 concepts) × (1 diff) × (3 styles) = 6
+  it("cache 不足の combo のみ返し、不足量降順 + conceptId 昇順", async () => {
+    // query #1: concepts
     queue.push(() => [
       { id: "a", difficultyLevels: ["junior"] },
       { id: "b", difficultyLevels: ["junior"] },
     ]);
-    // 各 combo の count query が順番に呼ばれる (6 combos × 1 query each)
-    // 順番: a/junior/why, a/junior/how, a/junior/trade_off, b/junior/why, b/junior/how, b/junior/trade_off
-    queue.push(() => [{ cnt: PREBATCH_TARGET_PER_COMBO }]); // a/why: OK (返さない)
-    queue.push(() => [{ cnt: 0 }]); // a/how: 不足量 5
-    queue.push(() => [{ cnt: 3 }]); // a/trade_off: 不足量 2
-    queue.push(() => [{ cnt: 1 }]); // b/why: 不足量 4
-    queue.push(() => [{ cnt: PREBATCH_TARGET_PER_COMBO + 10 }]); // b/how: OK
-    queue.push(() => [{ cnt: 0 }]); // b/trade_off: 不足量 5
+    // query #2: GROUP BY での count 集計 (見つかった combo のみ返す、無い combo は counts=0 扱い)
+    queue.push(() => [
+      // a/junior/why は 5 件で充足
+      {
+        conceptId: "a",
+        difficulty: "junior",
+        thinkingStyle: "why",
+        cnt: PREBATCH_TARGET_PER_COMBO,
+      },
+      // a/junior/trade_off は 3 件 → 不足 2
+      { conceptId: "a", difficulty: "junior", thinkingStyle: "trade_off", cnt: 3 },
+      // b/junior/why は 1 件 → 不足 4
+      { conceptId: "b", difficulty: "junior", thinkingStyle: "why", cnt: 1 },
+      // b/junior/how は 15 件で充足超え
+      { conceptId: "b", difficulty: "junior", thinkingStyle: "how", cnt: 15 },
+      // a/junior/how, b/junior/trade_off は count が返っていない = 0 件扱い (不足 5)
+    ]);
 
     const out = await findDeficitCombos();
     // 不足量降順: 5, 5, 4, 2
-    // 同値 (5) は conceptId 昇順 → a/how が先、b/trade_off が次
+    // 同値 (5) は conceptId 昇順 → a/how, b/trade_off
     expect(out.map((c) => `${c.conceptId}|${c.thinkingStyle}`)).toEqual([
       "a|how",
       "b|trade_off",
@@ -59,10 +70,26 @@ describe("findDeficitCombos", () => {
 
   it("全 combo が target 以上なら空配列", async () => {
     queue.push(() => [{ id: "a", difficultyLevels: ["junior"] }]);
-    // 3 styles 全て充足
-    queue.push(() => [{ cnt: PREBATCH_TARGET_PER_COMBO }]);
-    queue.push(() => [{ cnt: PREBATCH_TARGET_PER_COMBO + 1 }]);
-    queue.push(() => [{ cnt: PREBATCH_TARGET_PER_COMBO }]);
+    queue.push(() => [
+      {
+        conceptId: "a",
+        difficulty: "junior",
+        thinkingStyle: "why",
+        cnt: PREBATCH_TARGET_PER_COMBO,
+      },
+      {
+        conceptId: "a",
+        difficulty: "junior",
+        thinkingStyle: "how",
+        cnt: PREBATCH_TARGET_PER_COMBO + 1,
+      },
+      {
+        conceptId: "a",
+        difficulty: "junior",
+        thinkingStyle: "trade_off",
+        cnt: PREBATCH_TARGET_PER_COMBO,
+      },
+    ]);
     const out = await findDeficitCombos();
     expect(out).toEqual([]);
   });
