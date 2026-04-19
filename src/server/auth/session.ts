@@ -8,8 +8,9 @@ import { cookies } from "next/headers";
 import { getDb } from "@/db/client";
 import { sessionsAuth, users, type User } from "@/db/schema";
 
-import { isDevShortcutAvailable } from "./capabilities";
+import { isDevShortcutAvailable, isLocalAuthBypassEnabled } from "./capabilities";
 import { DEV_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "./constants";
+import { ensureLocalDevUser } from "./dev-login";
 
 export type CookieStore = ReadonlyRequestCookies | Awaited<ReturnType<typeof cookies>>;
 
@@ -56,6 +57,18 @@ export async function createSession(userId: string): Promise<{
  * 呼び出し元は返却された `expiresAt` を使って cookie を再発行すること。
  */
 export async function resolveSession(store: CookieStore): Promise<SessionResolution | null> {
+  // issue #71 着地までの暫定: ローカル dev では cookie を見ずに固定 dev user を返す。
+  // preview / production では isLocalAuthBypassEnabled が必ず false になり通常フローへ落ちる。
+  if (isLocalAuthBypassEnabled()) {
+    const user = await ensureLocalDevUser();
+    return {
+      user,
+      sessionId: "local-dev-bypass",
+      expiresAt: new Date(Date.now() + SESSION_MAX_AGE_MS),
+      kind: "dev",
+    };
+  }
+
   const passkeyId = store.get(SESSION_COOKIE_NAME)?.value ?? null;
   // dev cookie は「dev ショートカットが許可された環境」でのみ受理する。
   // pre-production で発行された cookie を self-host 本番に持ち込まれるバイパス対策。

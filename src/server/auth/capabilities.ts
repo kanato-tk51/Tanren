@@ -25,3 +25,17 @@ export function isDevShortcutAvailable(): boolean {
   // VERCEL_ENV が立っていない場合 (ローカル / self-host) は NODE_ENV のみで判断
   return nodeEnv !== "production";
 }
+
+/**
+ * ローカル開発時 (pnpm dev / vercel dev / next dev) の認証丸ごとバイパス。
+ * GitHub OAuth 移行 (issue #71) 完了までの暫定処置として、
+ * `NODE_ENV === "development"` かつ `VERCEL_ENV` が preview/production でない時のみ有効化する。
+ * Passkey 有効・無効と独立に働く点で `isDevShortcutAvailable` と異なる。
+ *
+ * preview / production では絶対に有効化してはいけない (認証バイパスになる)。
+ */
+export function isLocalAuthBypassEnabled(): boolean {
+  const vercelEnv = process.env.VERCEL_ENV;
+  if (vercelEnv === "production" || vercelEnv === "preview") return false;
+  return process.env.NODE_ENV === "development";
+}
