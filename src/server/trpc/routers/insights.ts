@@ -5,6 +5,7 @@ import { fetchHistory } from "@/server/insights/history";
 import { fetchMasteryMap } from "@/server/insights/mastery-map";
 import { fetchInsightsOverview } from "@/server/insights/overview";
 import { fetchSearch } from "@/server/insights/search";
+import { fetchTrends } from "@/server/insights/trends";
 
 import { protectedProcedure, router } from "../init";
 
@@ -20,6 +21,15 @@ export const insightsRouter = router({
    * 全 concept を domain → subdomain → concept の 3 階層で返す (サンバースト用)。
    */
   masteryMap: protectedProcedure.query(({ ctx }) => fetchMasteryMap(ctx.user.id)),
+
+  /**
+   * Trends (issue #33, docs/05 §5.9)。
+   * 直近 N 日の attemptCount / correctCount / accuracyPct / studyTimeMin を日次で返す。
+   * 欠損日は 0 埋め済み (JST 基準)。MVP は attempts GROUP BY DATE(…)。
+   */
+  trends: protectedProcedure
+    .input(z.object({ days: z.number().int().min(7).max(90).optional() }).optional())
+    .query(({ ctx, input }) => fetchTrends({ userId: ctx.user.id, days: input?.days })),
 
   /**
    * History 画面 (issue #21, docs/05 §5.5)。
