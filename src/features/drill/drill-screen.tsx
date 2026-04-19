@@ -12,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useUserId } from "@/features/auth/user-context";
 import { enqueueSubmit } from "@/lib/offline/queue";
 import { trpc } from "@/lib/trpc/react";
 
@@ -45,10 +46,11 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
   const nextMutation = trpc.session.next.useMutation();
   const submitMutation = trpc.session.submit.useMutation();
   const finishMutation = trpc.session.finish.useMutation();
-  // オフライン時の保留 enqueue (issue #40 follow-up)。認証済み前提 (`(app)/layout.tsx`
-  // で redirect 済み) だが、enqueue には userId が必要なので auth.me を引く。
-  const authMe = trpc.auth.me.useQuery(undefined, { staleTime: 60_000 });
-  const currentUserId = authMe.data?.authenticated ? authMe.data.user.id : null;
+  // オフライン保留 enqueue に使う userId。`(app)/layout.tsx` の UserIdProvider が
+  // server-resolved な値を同期的に流してくれるので、query 解決待ちがない
+  // (Codex PR#87 Round 2 指摘 #1)。`/` の HomeScreen 側で mount される DrillScreen
+  // のケースは ADR-0006 上ありえないが、防御のため null ガードは残す。
+  const currentUserId = useUserId();
 
   const pending =
     startMutation.isPending ||

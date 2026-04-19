@@ -94,23 +94,33 @@ export async function enqueueSubmit(item: PendingSubmit): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_SUBMITS, "readwrite");
     const store = tx.objectStore(STORE_SUBMITS);
-    // (sessionId, questionId) 単位で重複 enqueue を防ぐ。caller (drill-screen) が
-    // 同じ問題に対して再試行ボタン / 回答ボタン連打をしても queue が膨れない
-    // (Codex PR#87 Round 1 指摘 #1)。先に getAll で既存エントリを走査して一致が
-    // あれば add をスキップ。件数は drain が間に合わない時の pending 数なので、
-    // 全走査でも実用上問題ない。
+    // (sessionId, questionId) 単位で upsert する。caller (drill-screen) が同じ問題に
+    // 対して回答を修正して再 submit したら、queue 内エントリは最新 userAnswer に
+    // 更新する (Codex PR#87 Round 2 指摘 #2: 黙って最初の回答だけ残すと画面表示と
+    // ズレる)。連打による queue 膨張も (Codex PR#87 Round 1 指摘 #1) 同時に防げる。
     const getReq = store.getAll();
     getReq.onsuccess = () => {
-      const existing = (getReq.result as PendingSubmit[]).some(
+      const rows = getReq.result as StoredSubmit[];
+      const existing = rows.find(
         (p) => p.sessionId === item.sessionId && p.questionId === item.questionId,
       );
-      if (existing) {
-        // 重複は無視。上位から見ると enqueue は成功した扱い (idempotent)。
-        return;
+      if (existing && existing.sequence !== undefined) {
+        // 同一 (sessionId, questionId) を最新内容で上書き。sequence は保持して FIFO
+        // 順を崩さない。clientId は回答が変わったときに付け直したいので caller 値を使う。
+        store.put({
+          ...item,
+          sequence: existing.sequence,
+          // submittedAt が前 pass で付与されていたら「drain 待ちの cleanup」状態。
+          // 新しい回答として上書きする場合は印を剥がして、次 drain で再 submit するように。
+          submittedAt: undefined,
+          // retryCount もリセット (新しい回答なので過去の失敗回数は引き継がない)
+          retryCount: 0,
+        });
+      } else {
+        // sequence は autoIncrement で自動採番。同一 clientId は IDX_CLIENT_ID の
+        // UNIQUE 制約で弾かれる (caller 側の二重 enqueue を防ぐ)。
+        store.add(item);
       }
-      // sequence は autoIncrement で自動採番。同一 clientId は IDX_CLIENT_ID の UNIQUE
-      // 制約で弾かれる (caller 側の二重 enqueue を防ぐ)。
-      store.add(item);
     };
     getReq.onerror = () => reject(getReq.error ?? new Error("IndexedDB getAll failed"));
     tx.oncomplete = () => resolve();
