@@ -42,7 +42,9 @@ function ItemRow({
   // /custom?conceptId=... に直接 conceptId を渡し、parser を迂回して customSpec.concepts を
   // 決定論的に固定する (Round 3 指摘 #1: 自然言語 prefill では別 concept に解釈されうる)。
   const customHref = `/custom?conceptId=${encodeURIComponent(item.conceptId)}`;
-  const deepHref = `/deep/${encodeURIComponent(item.domainId)}`;
+  // Insights 発の Deep Dive は完了後 /insights に戻して Weakest カードの更新を見せたい。
+  // Home 発 (/ default) とは別挙動なので `?returnTo=/insights` を明示付与。
+  const deepHref = `/deep/${encodeURIComponent(item.domainId)}?returnTo=%2Finsights`;
   return (
     <li className="border-border rounded-md border p-2 text-sm">
       <div className="flex items-baseline justify-between gap-2">
