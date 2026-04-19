@@ -22,7 +22,12 @@ vi.mock("@/db/client", () => ({
   getDb: () => builders,
 }));
 
-import { DEV_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "./constants";
+import {
+  DEV_SESSION_COOKIE_NAME,
+  LOCAL_BYPASS_OFF_COOKIE_NAME,
+  SESSION_COOKIE_NAME,
+  SESSION_MAX_AGE_MS,
+} from "./constants";
 import { resolveSession } from "./session";
 
 function mockCookieStore(values: Record<string, string>) {
@@ -116,5 +121,42 @@ describe("resolveSession", () => {
     );
     expect(result).toBeNull();
     expect(builders.select).not.toHaveBeenCalled();
+  });
+
+  it("ローカル bypass 有効でも LOCAL_BYPASS_OFF cookie があれば null (ログアウト維持)", async () => {
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "development");
+    const result = await resolveSession(mockCookieStore({ [LOCAL_BYPASS_OFF_COOKIE_NAME]: "1" }));
+    // bypass を skip、実 cookie も無いので null。DB には触れない。
+    expect(result).toBeNull();
+    expect(builders.select).not.toHaveBeenCalled();
+    expect(builders.insert).not.toHaveBeenCalled();
+  });
+
+  it("ローカル bypass 有効 + 実 passkey cookie あり → 実 session を優先 (bypass 巻き込みなし)", async () => {
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "development");
+    const fakeUser = { id: "u1", email: "x@example.com" };
+    builders.select.mockReturnValue(
+      fluentSelect([{ session: { id: "s1", userId: "u1" }, user: fakeUser }]),
+    );
+    const capture: { set?: { expiresAt?: Date; lastActiveAt?: Date } } = {};
+    builders.update.mockReturnValue(fluentUpdateCapture(capture));
+
+    const result = await resolveSession(mockCookieStore({ [SESSION_COOKIE_NAME]: "s1" }));
+    // bypass ではなく passkey として返る。insert (ensureLocalDevUser) は呼ばれない。
+    expect(result?.user).toEqual(fakeUser);
+    expect(result?.kind).toBe("passkey");
+    expect(builders.insert).not.toHaveBeenCalled();
+  });
+
+  it("ローカル bypass 有効 + 実 passkey cookie あるが session 無し → null (bypass 救済しない)", async () => {
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "development");
+    builders.select.mockReturnValue(fluentSelect([]));
+    const result = await resolveSession(mockCookieStore({ [SESSION_COOKIE_NAME]: "expired" }));
+    // cookie が invalid なときは再ログインを促す (誤爆 bypass で足元を見失わないため)。
+    expect(result).toBeNull();
+    expect(builders.insert).not.toHaveBeenCalled();
   });
 });

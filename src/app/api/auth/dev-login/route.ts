@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { isDevShortcutAvailable } from "@/server/auth/capabilities";
-import { DEV_SESSION_COOKIE_NAME } from "@/server/auth/constants";
+import { DEV_SESSION_COOKIE_NAME, LOCAL_BYPASS_OFF_COOKIE_NAME } from "@/server/auth/constants";
 import { tryDevAutoLoginUser } from "@/server/auth/dev-login";
 import { createSession } from "@/server/auth/session";
 
@@ -35,5 +35,7 @@ export async function POST() {
     // __Host- prefix は使わないので Secure は HTTPS のみ必要。本番では上で 404 を返す
     secure: false,
   });
+  // 本物のログインが成立した時点で、ローカル bypass の opt-out フラグは不要。
+  store.delete(LOCAL_BYPASS_OFF_COOKIE_NAME);
   return NextResponse.json({ ok: true, user: { id: user.id, email: user.email } });
 }

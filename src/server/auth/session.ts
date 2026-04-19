@@ -8,8 +8,14 @@ import { cookies } from "next/headers";
 import { getDb } from "@/db/client";
 import { sessionsAuth, users, type User } from "@/db/schema";
 
-import { isDevShortcutAvailable } from "./capabilities";
-import { DEV_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "./constants";
+import { isDevShortcutAvailable, isLocalAuthBypassEnabled } from "./capabilities";
+import {
+  DEV_SESSION_COOKIE_NAME,
+  LOCAL_BYPASS_OFF_COOKIE_NAME,
+  SESSION_COOKIE_NAME,
+  SESSION_MAX_AGE_MS,
+} from "./constants";
+import { ensureLocalDevUser } from "./dev-login";
 
 export type CookieStore = ReadonlyRequestCookies | Awaited<ReturnType<typeof cookies>>;
 
@@ -18,8 +24,12 @@ type SessionResolution = {
   sessionId: string;
   /** resolve 時に延長された expiresAt。cookie の再発行に使う */
   expiresAt: Date;
-  /** dev (non __Host-) セッションか、Passkey (__Host-) セッションか */
-  kind: "passkey" | "dev";
+  /**
+   * - `passkey`: __Host- cookie 経由の Passkey セッション
+   * - `dev`: dev ショートカット由来の non-__Host- cookie セッション
+   * - `bypass`: ローカル bypass (issue #71 着地までの暫定、cookie なし)
+   */
+  kind: "passkey" | "dev" | "bypass";
 };
 
 /** `sessions_auth` に新しい行を作り、cookie attribute を返す */
@@ -56,6 +66,8 @@ export async function createSession(userId: string): Promise<{
  * 呼び出し元は返却された `expiresAt` を使って cookie を再発行すること。
  */
 export async function resolveSession(store: CookieStore): Promise<SessionResolution | null> {
+  // 1. 実 session cookie を最優先で解決する。これで logout → 再ログインや sessions_auth の
+  //    後片付けが bypass に巻き込まれずに動く (Codex review Round 2 指摘)。
   const passkeyId = store.get(SESSION_COOKIE_NAME)?.value ?? null;
   // dev cookie は「dev ショートカットが許可された環境」でのみ受理する。
   // pre-production で発行された cookie を self-host 本番に持ち込まれるバイパス対策。
@@ -63,29 +75,49 @@ export async function resolveSession(store: CookieStore): Promise<SessionResolut
     ? (store.get(DEV_SESSION_COOKIE_NAME)?.value ?? null)
     : null;
   const sessionId = passkeyId ?? devId;
-  if (!sessionId) return null;
-  const kind: "passkey" | "dev" = passkeyId ? "passkey" : "dev";
 
-  const db = getDb();
-  const rows = await db
-    .select({ session: sessionsAuth, user: users })
-    .from(sessionsAuth)
-    .innerJoin(users, eq(users.id, sessionsAuth.userId))
-    .where(and(eq(sessionsAuth.id, sessionId), gt(sessionsAuth.expiresAt, new Date())))
-    .limit(1);
+  if (sessionId) {
+    const kind: "passkey" | "dev" = passkeyId ? "passkey" : "dev";
 
-  const row = rows[0];
-  if (!row) return null;
+    const db = getDb();
+    const rows = await db
+      .select({ session: sessionsAuth, user: users })
+      .from(sessionsAuth)
+      .innerJoin(users, eq(users.id, sessionsAuth.userId))
+      .where(and(eq(sessionsAuth.id, sessionId), gt(sessionsAuth.expiresAt, new Date())))
+      .limit(1);
 
-  // 30 日 sliding: アクセス毎に expiresAt を押し出し、cookie も後続で同期延長する
-  const now = new Date();
-  const newExpiresAt = new Date(now.getTime() + SESSION_MAX_AGE_MS);
-  await db
-    .update(sessionsAuth)
-    .set({ lastActiveAt: now, expiresAt: newExpiresAt })
-    .where(eq(sessionsAuth.id, sessionId));
+    const row = rows[0];
+    // cookie はあるが session 行が見つからない / 期限切れの場合は null。bypass で救済しない
+    // (再ログインを促す。誤爆での自動 bypass で足元を見失わないため)。
+    if (!row) return null;
 
-  return { user: row.user, sessionId, expiresAt: newExpiresAt, kind };
+    // 30 日 sliding: アクセス毎に expiresAt を押し出し、cookie も後続で同期延長する
+    const now = new Date();
+    const newExpiresAt = new Date(now.getTime() + SESSION_MAX_AGE_MS);
+    await db
+      .update(sessionsAuth)
+      .set({ lastActiveAt: now, expiresAt: newExpiresAt })
+      .where(eq(sessionsAuth.id, sessionId));
+
+    return { user: row.user, sessionId, expiresAt: newExpiresAt, kind };
+  }
+
+  // 2. 実 cookie が無いときだけローカル bypass を検討する (issue #71 着地までの暫定)。
+  //    preview / production では isLocalAuthBypassEnabled が必ず false になり到達しない。
+  //    `/api/auth/logout` が立てた opt-out cookie がある間は bypass を skip し、
+  //    「ログアウト直後は未認証状態でいられる」体験を保つ。
+  if (isLocalAuthBypassEnabled() && !store.get(LOCAL_BYPASS_OFF_COOKIE_NAME)?.value) {
+    const user = await ensureLocalDevUser();
+    return {
+      user,
+      sessionId: "local-dev-bypass",
+      expiresAt: new Date(Date.now() + SESSION_MAX_AGE_MS),
+      kind: "bypass",
+    };
+  }
+
+  return null;
 }
 
 /** cookie の破棄とテーブル削除 */
@@ -102,6 +134,8 @@ export function refreshSessionCookie(
   store: CookieStore,
   resolution: Pick<SessionResolution, "sessionId" | "expiresAt" | "kind">,
 ): void {
+  // bypass 由来は cookie を持たない (DB にも sessions_auth 行が無い)。書き込まない。
+  if (resolution.kind === "bypass") return;
   try {
     if (resolution.kind === "passkey") {
       store.set({

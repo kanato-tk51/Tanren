@@ -3,6 +3,12 @@
 export const SESSION_COOKIE_NAME = "__Host-tanren_session";
 /** dev ショートカット用の cookie。passkey 無効 Preview などで使用 */
 export const DEV_SESSION_COOKIE_NAME = "tanren_dev_session";
+/**
+ * ローカル bypass (issue #71 着地までの暫定) を user が明示的に無効化したことを示す cookie。
+ * `/api/auth/logout` で set し、`resolveSession()` 側で検出したら bypass を skip する。
+ * preview / production では `isLocalAuthBypassEnabled` が常に false なので意味を持たない。
+ */
+export const LOCAL_BYPASS_OFF_COOKIE_NAME = "tanren_local_bypass_off";
 
 /** 30 日 sliding expiry */
 export const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
