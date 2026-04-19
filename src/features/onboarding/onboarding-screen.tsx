@@ -123,6 +123,13 @@ export function OnboardingScreen() {
           setResultSnapshot(finalSummary);
           setStep({ kind: "result" });
         }}
+        // pending-offline (オフラインで保留して離脱) 時は診断未完了扱いにする。
+        // onReset を走らせると result カードへ飛んで onboardingCompletedAt が更新されて
+        // しまうため別経路 (Codex PR#87 Round 4 指摘)。preferences に戻してやり直させる。
+        onOfflinePendingLeave={() => {
+          reset();
+          setStep({ kind: "preferences" });
+        }}
         skipInitialStartCard
       />
     );

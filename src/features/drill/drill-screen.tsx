@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, Check, Loader2, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -26,11 +27,22 @@ type DrillScreenProps = {
    *  最終 summary を引数で渡す: 親側は reset() で store がクリアされる前にスナップショット
    *  できる (issue #26 onboarding 結果カード用、Codex Round 1 指摘 #1)。 */
   onReset?: (finalSummary: import("./drill-state").DrillSummary | null) => void;
+  /** pending-offline (enqueue 済み / 未完了離脱) から抜ける時の挙動。onReset とは意味が
+   *  違うので分離した (Codex PR#87 Round 4 指摘): onReset は「セッション完了時の結果カード」
+   *  側で使われるので、onboarding 等では completion 扱いされる副作用がある。
+   *  default は `/` に遷移 (/drill 直接起動のケース)。onboarding / deep-dive / custom /
+   *  review など埋め込み先は、未完了離脱用の専用ハンドラを渡す。 */
+  onOfflinePendingLeave?: () => void;
   /** idle で出るスタートカードの挙動を差し替える (例: /custom では使わない) */
   skipInitialStartCard?: boolean;
 };
 
-export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps = {}) {
+export function DrillScreen({
+  onReset,
+  onOfflinePendingLeave,
+  skipInitialStartCard,
+}: DrillScreenProps = {}) {
+  const router = useRouter();
   const { phase, sessionId, question, selectedIndex, textAnswer, grading, summary } =
     useDrillStore();
   const {
@@ -49,6 +61,14 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
   // 既定 (onReset 未指定) は zustand reset。引数 finalSummary は無視されるが
   // 関数シグネチャは optional 引数で互換 (custom / review もそのまま動く)。
   const handleReset = onReset ?? (() => reset());
+  // pending-offline 離脱用。default は store reset + `/` に戻る (/drill 直起動時)。
+  // 埋め込み先は未完了離脱を独自に扱えるよう onOfflinePendingLeave を渡す。
+  const handleOfflineLeave =
+    onOfflinePendingLeave ??
+    (() => {
+      reset();
+      router.push("/");
+    });
 
   const startMutation = trpc.session.start.useMutation();
   const nextMutation = trpc.session.next.useMutation();
@@ -336,13 +356,7 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
           送信と採点はバックグラウンドで行われます。続きは次回のセッションでどうぞ。
         </CardContent>
         <CardFooter>
-          <Button
-            onClick={() => {
-              reset();
-              handleReset(null);
-            }}
-            className="min-h-12 px-6"
-          >
+          <Button onClick={handleOfflineLeave} className="min-h-12 px-6">
             ホームに戻る
           </Button>
         </CardFooter>
