@@ -3,6 +3,7 @@ import { and, desc, eq, gte, inArray, isNull, lt, or, type SQL } from "drizzle-o
 import { getDb } from "@/db/client";
 import { attempts, concepts, questions } from "@/db/schema";
 import type { DomainId } from "@/db/schema/_constants";
+import { jstPeriodBounds } from "@/lib/jst";
 
 export type HistoryFilter = {
   /** 'all' | 'today' | 'week' */
@@ -19,18 +20,6 @@ export type HistoryFilter = {
 /** 部分正解の閾値: score >= PARTIAL_MIN & < FULL_MIN を「部分正解」とする */
 const PARTIAL_MIN_SCORE = 0.3;
 const FULL_MIN_SCORE = 0.9;
-
-/** Asia/Tokyo (JST, UTC+9) 固定で今日の 00:00 と直近 7 日境界を返す (MVP: 個人用 / 日本語 UI) */
-function jstPeriodBounds(now: Date = new Date()): { today: Date; weekAgo: Date } {
-  const nowJstMs = now.getTime() + 9 * 60 * 60 * 1000;
-  const dayMs = 24 * 60 * 60 * 1000;
-  const jstStartOfTodayMs = Math.floor(nowJstMs / dayMs) * dayMs;
-  const todayUtcMs = jstStartOfTodayMs - 9 * 60 * 60 * 1000;
-  return {
-    today: new Date(todayUtcMs),
-    weekAgo: new Date(todayUtcMs - 6 * dayMs),
-  };
-}
 
 export type HistoryItem = {
   attemptId: string;
