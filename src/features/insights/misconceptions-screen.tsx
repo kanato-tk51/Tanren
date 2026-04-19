@@ -23,11 +23,16 @@ function ItemRow({
   resolving?: boolean;
 }) {
   // 矯正 Custom Session への導線 (docs/05 §5.8 「矯正指示入り」)。
-  // raw クエリを付けて parser 側のプロンプトに誤概念を明示、concept は conceptId で固定。
-  const rawHint = `concept ${item.conceptId} について ${item.description} という誤解を矯正する問題を 3 問`;
+  // /custom は ?prefill= を受け取る (src/app/custom/page.tsx)。conceptId が指定されると
+  // 既存実装では LLM parser を迂回して questionCount=5 の固定 spec になる (custom-screen.tsx)。
+  // MVP ではこの挙動を受け入れ、prefill は「どんな矯正を意図していたか」を textarea に
+  // 残すための表示用テキストとして扱う。実際の矯正指示を生成プロンプトに注入するには
+  // custom-session parser / generator の拡張が必要で、それは別 issue のスコープ。
+  // (Codex Round 1 指摘 #1: raw → prefill に修正、param 名が実装と一致)。
+  const prefill = `concept ${item.conceptId} について ${item.description} という誤解を矯正する問題を 3 問`;
   const customHref =
     `/custom?conceptId=${encodeURIComponent(item.conceptId)}` +
-    `&raw=${encodeURIComponent(rawHint)}`;
+    `&prefill=${encodeURIComponent(prefill)}`;
   return (
     <li className="border-border space-y-2 rounded-md border p-3 text-sm">
       <div className="flex items-baseline justify-between gap-2">

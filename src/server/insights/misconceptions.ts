@@ -24,7 +24,9 @@ export type MisconceptionsList = {
 };
 
 /** Misconception Tracker (issue #38, docs/05 §5.8)。
- *  active と resolved を分けて返す。active は count 降順、resolved は lastSeen 降順。
+ *  active / resolved のいずれも「count 降順、同 count は lastSeen 降順」で並べる。
+ *  SQL 側 ORDER BY と JS 側処理の二重制御を避けるため、JS での再ソートは行わない
+ *  (Codex Round 1 指摘 #2)。
  */
 export async function fetchMisconceptions(userId: string): Promise<MisconceptionsList> {
   const rows = await getDb()
@@ -46,9 +48,7 @@ export async function fetchMisconceptions(userId: string): Promise<Misconception
     .orderBy(desc(misconceptions.count), desc(misconceptions.lastSeen));
 
   const active = rows.filter((r) => !r.resolved);
-  const resolved = rows
-    .filter((r) => r.resolved)
-    .sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime());
+  const resolved = rows.filter((r) => r.resolved);
   return { active, resolved };
 }
 
