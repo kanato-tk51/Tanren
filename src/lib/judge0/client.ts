@@ -41,6 +41,11 @@ export const JUDGE0_MAX_SOURCE_BYTES = 10 * 1024;
 /** Judge0 側の壁時計上限 (秒)。無料 tier でも通る値、過度な 10s 以上は RapidAPI で drop される */
 export const JUDGE0_WALL_TIME_LIMIT_SEC = 5;
 
+/** fetch 全体の client-side timeout (ms)。wall_time_limit (5s) に加えて、キュー待ち +
+ *  ネットワーク遅延を見込んでも Vercel Functions の 10s デフォルト制限の手前で打ち切る
+ *  (Codex Round 1 指摘 #1)。 */
+export const JUDGE0_FETCH_TIMEOUT_MS = 8_000;
+
 function toBase64(s: string): string {
   return Buffer.from(s, "utf-8").toString("base64");
 }
@@ -90,11 +95,24 @@ export async function executeCode(args: {
   if (apiHost) headers["X-RapidAPI-Host"] = apiHost;
 
   const endpoint = `${url.replace(/\/$/, "")}/submissions?base64_encoded=true&wait=true&fields=stdout,stderr,status,time,memory,token`;
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), JUDGE0_FETCH_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new Judge0RequestError(`Judge0 timeout (>${JUDGE0_FETCH_TIMEOUT_MS}ms)`, 504);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Judge0RequestError(
