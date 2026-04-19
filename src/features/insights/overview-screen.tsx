@@ -113,6 +113,9 @@ export function InsightsOverviewScreen() {
             <Button asChild variant="outline" size="sm">
               <Link href="/insights/trends">📈 Trends</Link>
             </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/insights/misconceptions">💭 Misconceptions</Link>
+            </Button>
           </div>
         </CardContent>
       </Card>

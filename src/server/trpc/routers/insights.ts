@@ -3,6 +3,7 @@ import { z } from "zod";
 import { DOMAIN_IDS } from "@/db/schema/_constants";
 import { fetchHistory } from "@/server/insights/history";
 import { fetchMasteryMap } from "@/server/insights/mastery-map";
+import { fetchMisconceptions, markMisconceptionResolved } from "@/server/insights/misconceptions";
 import { fetchInsightsOverview } from "@/server/insights/overview";
 import { fetchSearch } from "@/server/insights/search";
 import { fetchTrends } from "@/server/insights/trends";
@@ -30,6 +31,18 @@ export const insightsRouter = router({
   trends: protectedProcedure
     .input(z.object({ days: z.number().int().min(7).max(90).optional() }).optional())
     .query(({ ctx, input }) => fetchTrends({ userId: ctx.user.id, days: input?.days })),
+
+  /** Misconception Tracker (issue #38, docs/05 §5.8)。
+   *  active / resolved を分けて返す。active は count 降順。 */
+  misconceptions: protectedProcedure.query(({ ctx }) => fetchMisconceptions(ctx.user.id)),
+
+  /** 誤概念をユーザー操作で resolve (issue #38) */
+  resolveMisconception: protectedProcedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await markMisconceptionResolved({ userId: ctx.user.id, id: input.id });
+      return { ok: true as const };
+    }),
 
   /**
    * History 画面 (issue #21, docs/05 §5.5)。
