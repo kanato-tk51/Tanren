@@ -36,15 +36,10 @@ export async function findUserByEmail(email: string) {
  * `onConflictDoNothing` + 再読込で吸収する (losing race 側は再 select で勝者の行を拾う)。
  */
 export async function ensureLocalDevUser(): Promise<User> {
-  const db = getDb();
+  const existing = await findUserByEmail(LOCAL_DEV_USER_EMAIL);
+  if (existing) return existing;
 
-  const fetchExisting = () =>
-    db.select().from(users).where(eq(users.email, LOCAL_DEV_USER_EMAIL)).limit(1);
-
-  const existing = await fetchExisting();
-  if (existing[0]) return existing[0];
-
-  const inserted = await db
+  const inserted = await getDb()
     .insert(users)
     .values({
       email: LOCAL_DEV_USER_EMAIL,
@@ -58,9 +53,9 @@ export async function ensureLocalDevUser(): Promise<User> {
   if (inserted[0]) return inserted[0];
 
   // 並列 insert で負けた側は row が返らないので勝者の行を再読込する。
-  const refetched = await fetchExisting();
-  if (!refetched[0]) {
+  const refetched = await findUserByEmail(LOCAL_DEV_USER_EMAIL);
+  if (!refetched) {
     throw new Error("failed to ensure local dev user: race lost and row still missing");
   }
-  return refetched[0];
+  return refetched;
 }
