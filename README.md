@@ -25,7 +25,7 @@ pnpm dlx vercel login        # 初回のみ
 pnpm dlx vercel link         # 初回のみ、このディレクトリをプロジェクトに紐付け
 pnpm db:migrate              # Neon にスキーマ適用 (env は Vercel から自動注入)
 pnpm db:seed                 # 知識ツリー seed
-pnpm auth:bootstrap          # 初回のみ: 作者の user 行を作成
+pnpm auth:bootstrap <github_user_id> [displayName] [email]  # 初回のみ: 作者の user 行を作成 (ADR-0006)
 pnpm dev                     # vercel dev で http://localhost:3000
 ```
 
@@ -55,16 +55,17 @@ Tanren/
 
 ## 主要スクリプト (予定)
 
-| コマンド          | 内容                     |
-| ----------------- | ------------------------ |
-| `pnpm dev`        | 開発サーバ               |
-| `pnpm build`      | 本番ビルド               |
-| `pnpm typecheck`  | `tsc --noEmit`           |
-| `pnpm lint`       | ESLint                   |
-| `pnpm format`     | Prettier 適用            |
-| `pnpm test`       | Vitest                   |
+<!-- prettier-ignore -->
+| コマンド | 内容 |
+|---|---|
+| `pnpm dev` | 開発サーバ |
+| `pnpm build` | 本番ビルド |
+| `pnpm typecheck` | `tsc --noEmit` |
+| `pnpm lint` | ESLint |
+| `pnpm format` | Prettier 適用 |
+| `pnpm test` | Vitest |
 | `pnpm db:migrate` | Drizzle マイグレーション |
-| `pnpm db:seed`    | concept seed 投入        |
+| `pnpm db:seed` | concept seed 投入 |
 
 ## 技術スタック
 
@@ -82,18 +83,19 @@ Tanren/
 
 設計ドキュメントは `docs/` に一式。
 
-| #   | ファイル                                            | 内容                        |
-| --- | --------------------------------------------------- | --------------------------- |
-| 01  | [vision](./docs/01-vision.md)                       | プロダクトの目的            |
-| 02  | [learning-system](./docs/02-learning-system.md)     | タクソノミ・SRS・セッション |
-| 03  | [ai-strategy](./docs/03-ai-strategy.md)             | Claude API 活用             |
-| 04  | [custom-sessions](./docs/04-custom-sessions.md)     | ユーザー指定出題            |
-| 05  | [insights](./docs/05-insights.md)                   | 学習状態の診断              |
-| 06  | [architecture](./docs/06-architecture.md)           | システム構成                |
-| 07  | [ux-and-pwa](./docs/07-ux-and-pwa.md)               | UX / PWA                    |
-| 08  | [mvp-roadmap](./docs/08-mvp-roadmap.md)             | ロードマップ                |
-| 09  | [risks-and-metrics](./docs/09-risks-and-metrics.md) | リスクと成功指標            |
-| 10  | [taxonomy-seed](./docs/10-taxonomy-seed.md)         | Tier 1 concept seed         |
+<!-- prettier-ignore -->
+| # | ファイル | 内容 |
+|---|---|---|
+| 01 | [vision](./docs/01-vision.md) | プロダクトの目的 |
+| 02 | [learning-system](./docs/02-learning-system.md) | タクソノミ・SRS・セッション |
+| 03 | [ai-strategy](./docs/03-ai-strategy.md) | Claude API 活用 |
+| 04 | [custom-sessions](./docs/04-custom-sessions.md) | ユーザー指定出題 |
+| 05 | [insights](./docs/05-insights.md) | 学習状態の診断 |
+| 06 | [architecture](./docs/06-architecture.md) | システム構成 |
+| 07 | [ux-and-pwa](./docs/07-ux-and-pwa.md) | UX / PWA |
+| 08 | [mvp-roadmap](./docs/08-mvp-roadmap.md) | ロードマップ |
+| 09 | [risks-and-metrics](./docs/09-risks-and-metrics.md) | リスクと成功指標 |
+| 10 | [taxonomy-seed](./docs/10-taxonomy-seed.md) | Tier 1 concept seed |
 
 - [`OPEN_QUESTIONS.md`](./docs/OPEN_QUESTIONS.md) — 先送りした論点
 - [`adrs/`](./docs/adrs/) — 設計判断の記録

@@ -2,6 +2,8 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 
+import type { OAuthErrorCode } from "./errors";
+
 /** 公開アプリの base URL (scheme+host+port) を返す。優先順位:
  *  1. `NEXT_PUBLIC_APP_URL` (Vercel Production / Preview で設定)
  *  2. `GITHUB_CALLBACK_URL` が設定されていればその origin (reverse proxy の明示 override)
@@ -24,8 +26,8 @@ export function publicBaseUrl(request: Request): string {
 }
 
 /** /login?error=<code> にリダイレクトする共通 helper。login / callback の両方で使う
- *  (Codex PR#86 Round 4 指摘 #2 の重複回避)。 */
-export function redirectToLoginError(request: Request, code: string): NextResponse {
+ *  (Codex PR#86 Round 4 指摘 #2 の重複回避)。`code` は `OAuthErrorCode` 列挙のいずれか。 */
+export function redirectToLoginError(request: Request, code: OAuthErrorCode): NextResponse {
   const url = new URL("/login", publicBaseUrl(request));
   url.searchParams.set("error", code);
   return NextResponse.redirect(url);
