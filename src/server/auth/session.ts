@@ -4,6 +4,7 @@ import { and, eq, gt } from "drizzle-orm";
 import type { ResponseCookie } from "next/dist/compiled/@edge-runtime/cookies";
 import type { ReadonlyRequestCookies } from "next/dist/server/web/spec-extension/adapters/request-cookies";
 import { cookies } from "next/headers";
+import { cache } from "react";
 
 import { getDb } from "@/db/client";
 import { sessionsAuth, users, type User } from "@/db/schema";
@@ -130,11 +131,13 @@ export function refreshSessionCookie(
   }
 }
 
-/** Route Handler 内で使うヘルパ。sliding expiry の cookie 再発行も同時に行う */
-export async function getCurrentUser(): Promise<User | null> {
+/** Route Handler 内で使うヘルパ。sliding expiry の cookie 再発行も同時に行う。
+ *  同一 request 内の複数呼び出しは React.cache で dedup (layout.tsx + page.tsx で
+ *  両方呼ぶケースで DB round-trip が 2 回走るのを防ぐ)。 */
+export const getCurrentUser = cache(async (): Promise<User | null> => {
   const store = await cookies();
   const resolved = await resolveSession(store);
   if (!resolved) return null;
   refreshSessionCookie(store, resolved);
   return resolved.user;
-}
+});

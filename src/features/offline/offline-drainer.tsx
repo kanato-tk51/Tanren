@@ -17,29 +17,29 @@ import { trpc } from "@/lib/trpc/react";
  *  onError からの wire-up は follow-up で対応、Codex Round 1 指摘 #2)。そのため現時点では
  *  queue は空のまま drainer は no-op。
  *
+ *  userId は server (layout.tsx → AppShell) が解決したものを props で受ける。これは
+ *  trpc.auth.me.useQuery を client で再度呼ぶと未ログインページで共有 React Query cache に
+ *  { authenticated: false } が seed されて post-login 画面の initialData が無効化される
+ *  回帰を避けるため (Codex Round 3 指摘)。AppShell 側が initialUserId=null なら mount
+ *  自体をスキップするので、ここに来る時点で userId は必ず存在する。
+ *
  *  マルチユーザー端末対策: drain 前に現在の userId と一致しないエントリは破棄する
  *  (enqueue 時の userId を PendingSubmit に保存、Codex Round 1 指摘 #3a)。
  *  永続失敗対策: drain 失敗時 retryCount を +1、MAX_RETRY_COUNT 超えで破棄 (同 #3c)。
  */
-export function OfflineDrainer() {
+export function OfflineDrainer({ userId }: { userId: string }) {
   const online = useOnlineStatus();
   const draining = useRef(false);
-  const me = trpc.auth.me.useQuery(undefined, {
-    staleTime: Infinity,
-    refetchOnWindowFocus: false,
-  });
-  const currentUserId = me.data?.authenticated ? me.data.user.id : null;
   const submitMut = trpc.session.submit.useMutation();
 
   useEffect(() => {
     if (!online || draining.current) return;
-    if (!currentUserId) return;
     draining.current = true;
     (async () => {
       try {
         const pending = await listPendingSubmits();
         for (const p of pending) {
-          if (p.userId !== currentUserId) {
+          if (p.userId !== userId) {
             // 別ユーザーの queue は drain せず破棄 (cross-user replay 防止)
             await removeSubmit(p.clientId);
             continue;
@@ -68,7 +68,7 @@ export function OfflineDrainer() {
     // deps に含めると effect が意図せず再発火する (Codex Round 1 指摘 #1)。
     // 参照は closure で固定で問題ない (mutateAsync 自体は破壊的な変化なし)。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online, currentUserId]);
+  }, [online, userId]);
 
   return null;
 }

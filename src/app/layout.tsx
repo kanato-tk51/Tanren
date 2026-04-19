@@ -5,6 +5,7 @@ import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { AppShell } from "@/components/layout/app-shell";
 import { RegisterServiceWorker } from "@/features/pwa/register-sw";
 import { TrpcProvider } from "@/lib/trpc/react";
+import { getCurrentUser } from "@/server/auth/session";
 
 import "./globals.css";
 
@@ -42,18 +43,23 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // OfflineDrainer が auth.me を shared cache に seed してしまう回帰を避けるため、
+  // 認証状態を server 側で確定して client に渡す (Codex Round 3 指摘)。
+  // getCurrentUser は React.cache で dedup されるので、page.tsx で別途呼んでも DB
+  // round-trip は 1 回のみ。
+  const initialUser = await getCurrentUser();
   return (
     <html lang="ja" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col">
         <RegisterServiceWorker />
         <NuqsAdapter>
           <TrpcProvider>
-            <AppShell>{children}</AppShell>
+            <AppShell initialUserId={initialUser?.id ?? null}>{children}</AppShell>
           </TrpcProvider>
         </NuqsAdapter>
       </body>

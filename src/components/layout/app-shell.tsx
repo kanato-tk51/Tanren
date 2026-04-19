@@ -6,20 +6,25 @@ import { OfflineDrainer } from "@/features/offline/offline-drainer";
 import { cn } from "@/lib/cn";
 
 import { BottomNav } from "./bottom-nav";
-import { isNavHidden, isPublicRoute } from "./nav-routes";
+import { isNavHidden } from "./nav-routes";
 import { OfflineBanner } from "./offline-banner";
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+/** initialUserId は server が getCurrentUser() で解決した値。null なら未ログイン扱いで
+ *  OfflineDrainer を mount しない (auth.me 経由の shared React Query cache 汚染を避ける、
+ *  Codex Round 3 指摘)。 */
+export function AppShell({
+  children,
+  initialUserId,
+}: {
+  children: React.ReactNode;
+  initialUserId: string | null;
+}) {
   const pathname = usePathname() ?? "/";
   const navVisible = !isNavHidden(pathname);
-  // OfflineDrainer は trpc.auth.me を fire するため、公開ページ (/login) で mount すると
-  // React Query の cache に { authenticated: false } を seed してしまい、ログイン成功後の
-  // HomeScreen の initialData が効かなくなる (Codex Round 2 指摘 #2)。
-  const drainerMounted = !isPublicRoute(pathname);
   return (
     <>
       <OfflineBanner />
-      {drainerMounted && <OfflineDrainer />}
+      {initialUserId !== null && <OfflineDrainer userId={initialUserId} />}
       <div className={cn("flex flex-1 flex-col", navVisible && "pb-16 md:pb-0")}>{children}</div>
       {navVisible && <BottomNav />}
     </>
