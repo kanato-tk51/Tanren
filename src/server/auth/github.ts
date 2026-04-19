@@ -76,8 +76,10 @@ export function buildAuthorizeUrl(args: {
   u.searchParams.set("state", args.state);
   u.searchParams.set("code_challenge", args.codeChallenge);
   u.searchParams.set("code_challenge_method", "S256");
-  // email は取りに行かない (任意化したので required にしないことで同意画面を軽くする)
-  u.searchParams.set("scope", "read:user");
+  // user:email を付けて primary email も取れるようにする (Codex PR#86 Round 1 指摘 #2:
+  // Weekly Digest が users.email IS NOT NULL でフィルタしているため email が null だと
+  // opt-out 方式が実質的に効かなくなる)。
+  u.searchParams.set("scope", "read:user user:email");
   return u.toString();
 }
 
@@ -94,6 +96,14 @@ const GithubUserSchema = z.object({
   email: z.string().email().nullable().optional(),
 });
 export type GithubUser = z.infer<typeof GithubUserSchema>;
+
+const GithubEmailsSchema = z.array(
+  z.object({
+    email: z.string().email(),
+    primary: z.boolean(),
+    verified: z.boolean(),
+  }),
+);
 
 /** code + code_verifier で access token に交換する。 */
 export async function exchangeCodeForToken(args: {
@@ -125,6 +135,24 @@ export async function exchangeCodeForToken(args: {
     throw new Error("GitHub token response malformed");
   }
   return parsed.data.access_token;
+}
+
+/** `/user/emails` から primary かつ verified な email を返す。取れなければ null。
+ *  `/user` の email が null (private 設定) の場合のフォールバック。scope に `user:email`
+ *  が必要 (ADR-0006 で authorize URL に付与済み)。 */
+export async function fetchPrimaryEmail(accessToken: string): Promise<string | null> {
+  const res = await fetch("https://api.github.com/user/emails", {
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${accessToken}`,
+      "user-agent": "tanren-auth",
+    },
+  });
+  if (!res.ok) return null;
+  const parsed = GithubEmailsSchema.safeParse(await res.json());
+  if (!parsed.success) return null;
+  const primary = parsed.data.find((e) => e.primary && e.verified);
+  return primary?.email ?? null;
 }
 
 /** token で GitHub user 情報を取得。allowlist 照合の入力。 */

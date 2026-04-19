@@ -91,7 +91,7 @@ describe("buildAuthorizeUrl", () => {
     expect(url.searchParams.get("state")).toBe("abc");
     expect(url.searchParams.get("code_challenge")).toBe("def");
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
-    expect(url.searchParams.get("scope")).toBe("read:user");
+    expect(url.searchParams.get("scope")).toBe("read:user user:email");
   });
 });
 

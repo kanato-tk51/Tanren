@@ -9,6 +9,7 @@ import {
   deserializeOAuthState,
   exchangeCodeForToken,
   fetchGithubUser,
+  fetchPrimaryEmail,
   findUserByGithubId,
   loadGithubOAuthConfig,
 } from "@/server/auth/github";
@@ -87,12 +88,26 @@ export async function GET(request: Request) {
     return errorRedirect(request, "not_bootstrapped");
   }
 
-  // GitHub 側で login を変えた場合に DB 側も追従する (表示用のみ)
+  // Weekly Digest は users.email IS NOT NULL のユーザーだけを対象にするため、email が
+  // ない既存行には落とし込んでおく (Codex PR#86 Round 1 指摘 #2)。`/user` の email が
+  // 非公開設定で null の場合、`user:email` scope + `/user/emails` 経由で primary
+  // verified を取得する。取れなければ skip (既存 email を上書きしない)。
+  let primaryEmail: string | null | undefined = githubUser.email ?? undefined;
+  if (!primaryEmail && !existing.email) {
+    primaryEmail = await fetchPrimaryEmail(accessToken);
+  }
+
+  const patch: Partial<typeof users.$inferInsert> = {};
   if (existing.githubLogin !== githubUser.login) {
-    await getDb()
-      .update(users)
-      .set({ githubLogin: githubUser.login })
-      .where(eq(users.id, existing.id));
+    patch.githubLogin = githubUser.login;
+  }
+  // email は一度セットされたらユーザーの意思で変更されるまで上書きしない (OAuth で
+  // primary email を途中で切り替えると既存 digest 受信者が予告なく変わるのを避ける)。
+  if (!existing.email && primaryEmail) {
+    patch.email = primaryEmail;
+  }
+  if (Object.keys(patch).length > 0) {
+    await getDb().update(users).set(patch).where(eq(users.id, existing.id));
   }
 
   const { sessionId, cookie } = await createSession(existing.id);
