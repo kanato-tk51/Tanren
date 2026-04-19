@@ -148,6 +148,9 @@ function DailyDrillCard({ dailyGoal }: { dailyGoal: number }) {
   const progress = trpc.home.dailyProgress.useQuery();
   const attemptCount = progress.data?.attemptCount ?? 0;
   const ratio = dailyGoal > 0 ? Math.min(attemptCount / dailyGoal, 1) : 0;
+  // aria-valuenow は [0, dailyGoal] の範囲に clamp し、aria-valuetext で実数を補う
+  // (目標超過日でも ARIA 仕様上の valuemin/valuemax を逸脱しないため)。
+  const ariaValueNow = Math.min(attemptCount, dailyGoal);
   return (
     <Card>
       <CardHeader>
@@ -168,7 +171,8 @@ function DailyDrillCard({ dailyGoal }: { dailyGoal: number }) {
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={dailyGoal}
-          aria-valuenow={attemptCount}
+          aria-valuenow={ariaValueNow}
+          aria-valuetext={`${attemptCount} / ${dailyGoal} 問`}
           aria-label="今日の進捗"
         >
           <div
