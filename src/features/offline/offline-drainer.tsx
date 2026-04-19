@@ -44,6 +44,29 @@ import { trpc } from "@/lib/trpc/react";
 
 const DRAIN_RETRY_DELAY_MS = 30_000;
 
+/** submit 成功直後の markAsSubmitted 永続化のインライン retry 回数。IndexedDB 側の
+ *  一時障害で 1 回失敗したまま break すると、次 pass で submittedAt 印なしで entry が
+ *  再読み込みされて再 submit → pendingQuestionId 不一致で BAD_REQUEST → retryCount
+ *  消化 → 回答ロストになる (Codex Round 12 指摘)。インライン retry で印の永続化を
+ *  できるだけ保証する。上限到達時は break し、印の永続化が致命的に失敗した状態で
+ *  データロストしないよう `retryCount` を消費しない (UNAUTHORIZED と同じ扱い)。 */
+const MARK_PERSIST_ATTEMPTS = 5;
+const MARK_PERSIST_DELAY_MS = 200;
+
+async function persistMarkAsSubmitted(clientId: string): Promise<boolean> {
+  for (let i = 0; i < MARK_PERSIST_ATTEMPTS; i++) {
+    try {
+      await markAsSubmitted(clientId);
+      return true;
+    } catch {
+      if (i < MARK_PERSIST_ATTEMPTS - 1) {
+        await new Promise((r) => setTimeout(r, MARK_PERSIST_DELAY_MS * (i + 1)));
+      }
+    }
+  }
+  return false;
+}
+
 function isUnauthorizedError(err: unknown): boolean {
   if (err instanceof TRPCClientError) {
     // tRPC v11 では data.code に string の SPECERROR が入る (procedure の TRPCError.code)
@@ -117,12 +140,14 @@ export function OfflineDrainer({ userId }: { userId: string }) {
           }
           // submit 成功。removeSubmit 前に submittedAt を永続化しておくことで、
           // 直後の removeSubmit が失敗しても次 pass / remount 後でも re-submit を回避できる。
-          try {
-            await markAsSubmitted(p.clientId);
-          } catch {
-            // 印を付けられなかった場合は安全側で break。次 pass で submit が再走する
-            // と pendingQuestionId 不一致で BAD_REQUEST になるのを避けるため、
-            // ここでは incrementRetry せずに break (UNAUTHORIZED と同じ扱い)。
+          // 1 回だけだと一時的な IndexedDB 失敗で印が残らず、次 pass で再 submit されて
+          // BAD_REQUEST → 回答ロストになりうる (Codex Round 12 指摘)。インライン retry で
+          // 印の永続化をできるだけ保証する。
+          const marked = await persistMarkAsSubmitted(p.clientId);
+          if (!marked) {
+            // 上限 retry でも印が付けられなかった = IndexedDB が深刻に壊れている。
+            // 回答を失わないように retryCount は消費せず break (UNAUTHORIZED と同じ扱い)。
+            // 次 pass (ユーザー操作で mount し直し or online 再遷移) で印の付与から再試行。
             hadFailure = true;
             break;
           }
