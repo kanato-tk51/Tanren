@@ -12,7 +12,7 @@ export default async function Home() {
     redirect("/onboarding");
   }
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
+    <main className="flex min-h-screen flex-col items-center gap-6 p-6 sm:p-8">
       <HomeScreen
         initialUser={
           initialUser

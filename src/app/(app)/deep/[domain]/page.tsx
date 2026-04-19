@@ -10,7 +10,13 @@ function isDomainId(v: string): v is DomainId {
   return (DOMAIN_IDS as readonly string[]).includes(v);
 }
 
-export default async function DeepDivePage({ params }: { params: Promise<{ domain: string }> }) {
+export default async function DeepDivePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ domain: string }>;
+  searchParams?: Promise<{ returnTo?: string | string[] }>;
+}) {
   // auth 判定と /login redirect は (app)/layout.tsx で既に済んでいる。ここでは
   // onboarding 未完了の追加チェックだけを行う (React.cache で DB round-trip は layout と
   // 合算しても 1 回)。
@@ -20,9 +26,11 @@ export default async function DeepDivePage({ params }: { params: Promise<{ domai
   const { domain } = await params;
   if (!isDomainId(domain)) notFound();
 
+  const sp = await searchParams;
+  const rawReturnTo = Array.isArray(sp?.returnTo) ? sp?.returnTo[0] : sp?.returnTo;
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-6">
-      <DeepDiveScreen domainId={domain} />
+      <DeepDiveScreen domainId={domain} returnTo={rawReturnTo} />
     </main>
   );
 }

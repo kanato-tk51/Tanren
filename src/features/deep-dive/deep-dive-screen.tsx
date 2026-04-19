@@ -16,28 +16,13 @@ import {
 import type { DomainId } from "@/db/schema";
 import { DrillScreen } from "@/features/drill/drill-screen";
 import { useDrillStore } from "@/features/drill/drill-state";
+import { DOMAIN_LABELS } from "@/lib/domain-labels";
 import { trpc } from "@/lib/trpc/react";
 
 type Phase =
   | { kind: "idle" }
   | { kind: "running"; sessionId: string }
   | { kind: "error"; message: string };
-
-const DOMAIN_LABELS: Record<DomainId, string> = {
-  programming: "Programming",
-  dsa: "DSA",
-  os: "OS",
-  network: "Network",
-  db: "Database",
-  security: "Security",
-  distributed: "Distributed",
-  design: "Design",
-  devops: "DevOps",
-  tools: "Tools",
-  low_level: "Low-level",
-  ai_ml: "AI / ML",
-  frontend: "Frontend",
-};
 
 /**
  * Deep Dive セッション画面 (issue #28)。
@@ -50,7 +35,15 @@ const DOMAIN_LABELS: Record<DomainId, string> = {
  *   - running: DrillScreen を skipInitialStartCard で埋め込み
  *   - 完了後「ホームに戻る」で /insights に遷移 (元の導線 Weakest カードに戻る想定)
  */
-export function DeepDiveScreen({ domainId }: { domainId: DomainId }) {
+/** 完了後の戻り先。Home 発 (default) は `/`、Insights の Weakest カード発は `?returnTo=/insights`。
+ *  外部 URL 混入を避けるため、prop として許可する値は `/` で始まる内部 path のみ。 */
+function normalizeReturnTo(raw: string | undefined): string {
+  if (!raw) return "/";
+  return raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
+}
+
+export function DeepDiveScreen({ domainId, returnTo }: { domainId: DomainId; returnTo?: string }) {
+  const safeReturnTo = normalizeReturnTo(returnTo);
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const startSession = trpc.session.start.useMutation();
@@ -77,8 +70,9 @@ export function DeepDiveScreen({ domainId }: { domainId: DomainId }) {
     return (
       <DrillScreen
         onReset={() => {
-          // 完了後は Insights (元の導線 Weakest カードの画面) に戻す
-          router.push("/insights");
+          // 完了後の戻り先は呼び出し側が決める (default は Home の `/`)。
+          // Insights の Weakest カード発は `?returnTo=/insights` を付けて従来挙動を維持。
+          router.push(safeReturnTo);
         }}
         skipInitialStartCard
       />
