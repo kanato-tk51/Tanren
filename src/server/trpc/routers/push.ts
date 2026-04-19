@@ -9,7 +9,11 @@ import { protectedProcedure, router } from "../init";
 
 /** Web Push subscription 登録 / 解除 (issue #37) */
 export const pushRouter = router({
-  /** Service Worker 登録 → navigator.pushManager.subscribe() の結果を DB に upsert */
+  /** Service Worker 登録 → navigator.pushManager.subscribe() の結果を DB に upsert。
+   *  既存 endpoint が別ユーザー所有なら FORBIDDEN で弾く (乗っ取り防止、Codex Round 1 指摘 #1)。
+   *  web_push_enabled は自動で切り替えない。UI 側が明示的に setEnabled を呼ぶ
+   *  (Codex Round 1 指摘 #3: 購読と配信設定の責務分離)。
+   */
   subscribe: protectedProcedure
     .input(
       z.object({
@@ -21,7 +25,18 @@ export const pushRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
-      // endpoint UNIQUE なので onConflictDoUpdate で多端末対応 + 再登録 OK
+      const existing = await db
+        .select({ userId: pushSubscriptions.userId })
+        .from(pushSubscriptions)
+        .where(eq(pushSubscriptions.endpoint, input.endpoint))
+        .limit(1);
+      if (existing[0] && existing[0].userId !== ctx.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "別ユーザーが所有する endpoint です",
+        });
+      }
+      // 同一ユーザーが再 subscribe した or 初回: 鍵だけ upsert する。conflict 時に userId は触らない。
       await db
         .insert(pushSubscriptions)
         .values({
@@ -34,14 +49,11 @@ export const pushRouter = router({
         .onConflictDoUpdate({
           target: pushSubscriptions.endpoint,
           set: {
-            userId: ctx.user.id,
             p256dh: input.p256dh,
             auth: input.auth,
             userAgent: input.userAgent ?? null,
           },
         });
-      // 初回 subscribe で web_push_enabled も ON にしておく (opt-in 簡略化)
-      await db.update(users).set({ webPushEnabled: true }).where(eq(users.id, ctx.user.id));
       return { ok: true as const };
     }),
 

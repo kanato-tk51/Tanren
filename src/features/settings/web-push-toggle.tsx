@@ -6,6 +6,13 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc/react";
 
+type ServerSubscribeInput = {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  userAgent: string;
+};
+
 /** base64url 文字列を ArrayBuffer に変換 (PushManager.subscribe の applicationServerKey 用)。
  *  DOM 型定義の都合で Uint8Array<ArrayBufferLike> ではなく純粋 ArrayBuffer を返す。 */
 function urlBase64ToArrayBuffer(base64Url: string): ArrayBuffer {
@@ -26,6 +33,7 @@ export function WebPushToggle() {
   });
   const subscribeMut = trpc.push.subscribe.useMutation();
   const unsubscribeMut = trpc.push.unsubscribe.useMutation();
+  const setEnabledMut = trpc.push.setEnabled.useMutation();
 
   const [status, setStatus] = useState<Status>("unsubscribed");
   const [error, setError] = useState<string | null>(null);
@@ -70,21 +78,33 @@ export function WebPushToggle() {
       const p256dh = json.keys?.p256dh;
       const auth = json.keys?.auth;
       if (!json.endpoint || !p256dh || !auth) {
+        // subscription 形式が不正: push 側を unsubscribe して orphan を残さない
+        await sub.unsubscribe().catch(() => undefined);
         throw new Error("subscription の形式が不正です");
       }
-      await subscribeMut.mutateAsync({
+      const serverInput: ServerSubscribeInput = {
         endpoint: json.endpoint,
         p256dh,
         auth,
         userAgent: navigator.userAgent,
-      });
+      };
+      try {
+        await subscribeMut.mutateAsync(serverInput);
+      } catch (e) {
+        // server 側保存失敗で pushManager.subscribe() だけ生き残る orphan を防止
+        // (Codex Round 1 指摘 #2)
+        await sub.unsubscribe().catch(() => undefined);
+        throw e;
+      }
+      // 購読と設定フラグの責務分離 (Codex Round 1 指摘 #3)。購読成功したら明示的に ON にする。
+      await setEnabledMut.mutateAsync({ enabled: true });
       setStatus("subscribed");
     } catch (e) {
       setError(e instanceof Error ? e.message : "購読に失敗しました");
     } finally {
       setBusy(false);
     }
-  }, [publicKeyQuery.isError, publicKeyQuery.data, subscribeMut]);
+  }, [publicKeyQuery.isError, publicKeyQuery.data, subscribeMut, setEnabledMut]);
 
   const onUnsubscribe = useCallback(async () => {
     setError(null);
