@@ -182,12 +182,13 @@ function DailyDrillCard({ dailyGoal }: { dailyGoal: number }) {
               style={{ width: `${Math.round(ratio * 100)}%` }}
             />
           </div>
-        ) : (
+        ) : progress.isError ? null : (
+          // loading 中: animate-pulse で「確定 0 件の空バー」と区別 (Codex Round 3 指摘)。
           <div
-            className="bg-secondary h-2 w-full overflow-hidden rounded-full"
+            className="bg-secondary h-2 w-full animate-pulse rounded-full"
             role="progressbar"
             aria-label="今日の進捗"
-            aria-valuetext={progress.isError ? "取得失敗" : "読み込み中"}
+            aria-valuetext="読み込み中"
           />
         )}
       </CardContent>
