@@ -85,6 +85,13 @@
       "when": 1776499000000,
       "tag": "0011_attempts_dialogue",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1776500000000,
+      "tag": "0012_weekly_digest_enabled",
+      "breakpoints": true
     }
   ]
 }
