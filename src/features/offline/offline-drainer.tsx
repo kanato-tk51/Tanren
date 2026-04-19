@@ -57,6 +57,10 @@ export function OfflineDrainer({ userId }: { userId: string }) {
     let cancelled = false;
     let inFlight = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    // submit は成功したが removeSubmit が失敗したエントリ。次 pass では re-submit せず
+    // remove のみ試行する (Codex Round 10 指摘: 再送すると pendingQuestionId 不一致で
+    // BAD_REQUEST になり FIFO がブロックされるため分離)。
+    const submittedPendingRemove = new Set<string>();
 
     const scheduleRetry = () => {
       if (cancelled || retryTimer) return;
@@ -69,8 +73,7 @@ export function OfflineDrainer({ userId }: { userId: string }) {
     const drainOnce = async () => {
       if (cancelled || inFlight) return;
       inFlight = true;
-      // outer catch に入るケース (IndexedDB 失敗) でも再試行したいので、hadFailure を
-      // try/finally の外で管理。
+      // outer catch (IndexedDB 失敗) でも再試行したいので hadFailure を try/finally の外で管理。
       let hadFailure = false;
       try {
         const pending = await listPendingSubmits();
@@ -81,6 +84,17 @@ export function OfflineDrainer({ userId }: { userId: string }) {
             await removeSubmit(p.clientId);
             continue;
           }
+          if (submittedPendingRemove.has(p.clientId)) {
+            // 前 pass で submit は通っているので、cleanup だけ再試行 (再 submit は禁止)。
+            try {
+              await removeSubmit(p.clientId);
+              submittedPendingRemove.delete(p.clientId);
+            } catch {
+              hadFailure = true;
+              break;
+            }
+            continue;
+          }
           try {
             await submitMut.mutateAsync({
               sessionId: p.sessionId,
@@ -89,10 +103,9 @@ export function OfflineDrainer({ userId }: { userId: string }) {
               ...(p.reasonGiven !== undefined ? { reasonGiven: p.reasonGiven } : {}),
               ...(p.elapsedMs !== undefined ? { elapsedMs: p.elapsedMs } : {}),
             });
-            await removeSubmit(p.clientId);
           } catch (err) {
             if (isUnauthorizedError(err)) {
-              // 再ログイン後に remount で再 drain されるので retryCount を消費しない。
+              // 再ログイン後に drainer remount で再 drain されるので retryCount を消費しない。
               // 自己再試行もスキップ (auth が戻るまで 30 秒おきに失敗し続けても意味なし)。
               break;
             }
@@ -100,9 +113,17 @@ export function OfflineDrainer({ userId }: { userId: string }) {
             hadFailure = true;
             break;
           }
+          try {
+            await removeSubmit(p.clientId);
+          } catch {
+            // submit は成功済み。次 pass で remove だけ再試行する。
+            submittedPendingRemove.add(p.clientId);
+            hadFailure = true;
+            break;
+          }
         }
       } catch {
-        // listPendingSubmits / removeSubmit 等の IndexedDB 失敗。次回 retry で再試行。
+        // listPendingSubmits 等の IndexedDB 失敗。次回 retry で再試行。
         hadFailure = true;
       } finally {
         inFlight = false;
