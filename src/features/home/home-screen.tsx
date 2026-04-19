@@ -14,8 +14,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { TIER_1_DOMAIN_IDS, type Tier1DomainId } from "@/db/schema";
+import { TIER_1_DOMAIN_IDS } from "@/db/schema";
 import { OfflineDrainer } from "@/features/offline/offline-drainer";
+import { DOMAIN_LABELS } from "@/lib/domain-labels";
 import { trpc } from "@/lib/trpc/react";
 
 export type InitialHomeUser = {
@@ -24,19 +25,6 @@ export type InitialHomeUser = {
   displayName: string | null;
   dailyGoal: number;
 } | null;
-
-/** Deep Dive 一覧で表示する Tier 1 6 ドメインのラベル。
- *  DOMAIN_LABELS (deep-dive-screen.tsx) と重複しないよう、Tier 1 のみをここに絞る。
- *  Tier 2+ は onboarding でまだ選べず、ホームから直接導線する必要もないため除外。
- */
-const TIER_1_LABELS: Record<Tier1DomainId, string> = {
-  programming: "Programming",
-  dsa: "DSA",
-  network: "Network",
-  db: "Database",
-  tools: "Tools",
-  frontend: "Frontend",
-};
 
 function NavCard({
   href,
@@ -151,7 +139,7 @@ export function HomeScreen({ initialUser }: { initialUser: InitialHomeUser }) {
 
         <section className="space-y-2">
           <h2 className="text-lg font-semibold">学習を始める</h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <NavCard href="/drill" title="Daily Drill" description="今日の目標まで 1 問ずつ" />
             <NavCard href="/review" title="Mistake Review" description="間違えた問題を再挑戦" />
             <NavCard href="/custom" title="Custom Session" description="自然文で狙い撃ち出題" />
@@ -182,7 +170,7 @@ export function HomeScreen({ initialUser }: { initialUser: InitialHomeUser }) {
               <NavCard
                 key={d}
                 href={`/deep/${d}`}
-                title={TIER_1_LABELS[d]}
+                title={DOMAIN_LABELS[d]}
                 description="集中出題"
               />
             ))}
