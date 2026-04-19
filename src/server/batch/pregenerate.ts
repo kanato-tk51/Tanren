@@ -11,6 +11,7 @@ import {
   type DifficultyLevel,
   type ThinkingStyle,
 } from "@/db/schema";
+import { CACHE_WINDOW_DAYS } from "@/server/generator/cache";
 import { generateMcq } from "@/server/generator/mcq";
 
 /** 1 回の cron で生成する最大問題数。LLM コスト上限のガード (docs/03 §3.3.4)。
@@ -25,11 +26,8 @@ export const PREBATCH_TARGET_PER_COMBO = 5;
 /** 未充足 combo 探索の上限 (過剰スキャンを防ぐ) */
 const PREBATCH_SCAN_LIMIT = 200;
 
-/** キャッシュ窓 (日)。`src/server/generator/cache.ts` の既定値 30 と揃える
- *  (Codex Round 1 指摘 #3: pregen と runtime の窓が不整合だと、30 日より古い問題で
- *  deficit=0 と誤判定されて補充されないのに runtime は cache miss で新規生成になる)。
- */
-export const PREBATCH_CACHE_WINDOW_DAYS = 30;
+// キャッシュ窓 (日) は CACHE_WINDOW_DAYS (cache.ts) を一箇所で参照する
+// (Codex Round 2 指摘: 30 の直書きをやめて単一の真実の源に一本化)。
 
 export type Combo = {
   conceptId: string;
@@ -54,7 +52,7 @@ export type PrebatchResult = {
 export async function findDeficitCombos(params?: { now?: Date }): Promise<Combo[]> {
   const db = getDb();
   const now = params?.now ?? new Date();
-  const since = new Date(now.getTime() - PREBATCH_CACHE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const since = new Date(now.getTime() - CACHE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
   const conceptRows: Pick<Concept, "id" | "difficultyLevels">[] = await db
     .select({ id: concepts.id, difficultyLevels: concepts.difficultyLevels })
@@ -156,6 +154,10 @@ export async function runPregenerateBatch(args?: {
           difficulty: combo.difficulty,
           thinkingStyle: combo.thinkingStyle,
           forceFresh: true, // cache をバイパスして新規問題を DB に追加
+          // pregen は「誰にも配信されていない inventory」を積む目的。
+          // serveCount=0 / lastServedAt=null で insert し、findCachedQuestion の
+          // 「未使用を優先」順序で最優先で取り出せるようにする (Codex Round 2 指摘)。
+          markAsServed: false,
         },
         undefined,
       );
