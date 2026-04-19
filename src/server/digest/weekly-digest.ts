@@ -5,6 +5,10 @@ import { and, eq, gte, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { attempts, sessionsAuth, users } from "@/db/schema";
 
+// sessionsAuth は直接 JOIN で引くと 1 user × N デバイスの fan-out で
+// attempt 集計が N 倍に水増しされる (Codex Round 1 指摘 A)。
+// EXISTS サブクエリで活性判定だけ行い、JOIN は users ↔ attempts のみに保つ。
+
 /** Weekly Digest 対象者の条件 (issue #36):
  *  - onboarding 完了済み
  *  - 直近 14 日以内にログイン活動あり (= sessions_auth に lastActiveAt >= now - 14d が存在)
@@ -33,8 +37,8 @@ export async function collectWeeklyDigestTargets(now: Date = new Date()): Promis
   const activeSince = new Date(now.getTime() - INACTIVE_DAYS_THRESHOLD * 24 * 60 * 60 * 1000);
   const windowStart = new Date(now.getTime() - WEEKLY_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
-  // 2 週間以内にログインしたユーザー (sessionsAuth.lastActiveAt で近似) のみ対象。
-  // JOIN で絞るのは集計コストを下げるため。
+  // 活性ユーザー判定は EXISTS で (JOIN にしない → fan-out 回避、Codex Round 1 指摘 A)。
+  // attempts を LEFT JOIN し、attempt 0 件のユーザーも 1 行で返す (後段で attemptCount=0 をスキップ)。
   const rows = await db
     .select({
       userId: users.id,
@@ -51,16 +55,12 @@ export async function collectWeeklyDigestTargets(now: Date = new Date()): Promis
       ),
     })
     .from(users)
-    .innerJoin(sessionsAuth, eq(sessionsAuth.userId, users.id))
-    // attempts は LEFT JOIN で、先週 attempt 0 件のユーザーも対象に含める判定余地を残す。
-    // 実際の判定は呼び出し側 (attemptCount >= 1 なら送る 等) に委ねる。
     .leftJoin(attempts, and(eq(attempts.userId, users.id), gte(attempts.createdAt, windowStart)))
     .where(
       and(
-        gte(sessionsAuth.lastActiveAt, activeSince),
-        // onboarding 済み
+        // 活性チェック: EXISTS (SELECT 1 FROM sessions_auth ...) で JOIN 重複を避ける
+        sql`EXISTS (SELECT 1 FROM ${sessionsAuth} AS sa WHERE sa.user_id = ${users.id} AND sa.last_active_at >= ${activeSince})`,
         sql`${users.onboardingCompletedAt} IS NOT NULL`,
-        // opt-out 設定が ON のユーザーのみ (issue #36 受け入れ基準)
         eq(users.weeklyDigestEnabled, true),
       ),
     )

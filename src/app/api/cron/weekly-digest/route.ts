@@ -17,12 +17,16 @@ export const dynamic = "force-dynamic";
  * 戻り値: { sent: number, skipped: number, errors: Array<{userId, error}> }
  */
 export async function GET(req: Request) {
+  // CRON_SECRET 認可。
+  // - production: 必ず設定されていないと 500 (fail-closed、Codex Round 1 指摘 C)
+  // - preview / dev: 未設定ならスキップ (ローカル動作を楽にする)
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!cronSecret) {
+    if (process.env.VERCEL_ENV === "production") {
+      return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
     }
+  } else if (req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const resend = getResend();
