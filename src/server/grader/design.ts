@@ -55,6 +55,8 @@ const DESIGN_JSON_SCHEMA = {
 
 export const DESIGN_MAX_AI_TURNS = 3;
 export const DESIGN_PROMPT_VERSION = "design.v1";
+/** スコア >= このしきい値で correct 扱い (docs/02 §2.2.1 の design ルーブリック) */
+export const DESIGN_CORRECT_THRESHOLD = 0.8;
 
 /** AI のターン回数をカウント (role === 'ai' の turn 数)。3 に達していたら必ず finalize させる。 */
 export function countAiTurns(turns: DialogueTurn[]): number {
@@ -116,38 +118,56 @@ export function buildDesignPrompt(args: GradeArgs): {
   return { system, user, forceFinalize, turnCount };
 }
 
+/** runDesignTurn の戻り値。fallback=true は LLM 呼び出しが壊れて safe finalize した印。
+ *  呼び出し側はこれを見て gradedBy / mastery 更新の扱いを変える (Codex Round 1 指摘 #4)。
+ */
+export type DesignTurnResult = {
+  response: DesignResponse;
+  model: string;
+  fallback: boolean;
+};
+
 /**
  * design タイプ 1 ターン分の LLM 呼び出し。
  * forceFinalize のときに LLM が finalized=false で返したら強制確定 (指示違反防御)。
+ * LLM throw 時は fallback=true + 中間点 safe finalize を返す。
  */
 export async function runDesignTurn(
   args: GradeArgs,
   llm: DesignLlmCaller = defaultDesignLlm,
-): Promise<DesignResponse> {
+): Promise<DesignTurnResult> {
   const { system, user, forceFinalize } = buildDesignPrompt(args);
   let data: DesignResponse;
   try {
     data = await llm({ model: MODEL_MAIN, system, user });
   } catch {
-    // LLM が出力形式を壊したら中間点で safe finalize
     return {
-      finalized: true,
-      nextQuestion: null,
-      score: 0.4,
-      feedback: "採点応答のフォーマットが壊れていました。中間点で確定します。",
-      rubricChecks: null,
+      response: {
+        finalized: true,
+        nextQuestion: null,
+        score: 0.4,
+        feedback: "採点応答のフォーマットが壊れていました。中間点で確定します。",
+        rubricChecks: null,
+      },
+      model: MODEL_MAIN,
+      fallback: true,
     };
   }
   if (forceFinalize && !data.finalized) {
     return {
-      ...data,
-      finalized: true,
-      nextQuestion: null,
-      score: data.score ?? 0.5,
-      feedback: data.feedback ?? "最終ターンの強制確定 (LLM が finalize 指示に従わなかったため)。",
+      response: {
+        ...data,
+        finalized: true,
+        nextQuestion: null,
+        score: data.score ?? 0.5,
+        feedback:
+          data.feedback ?? "最終ターンの強制確定 (LLM が finalize 指示に従わなかったため)。",
+      },
+      model: MODEL_MAIN,
+      fallback: false,
     };
   }
-  return data;
+  return { response: data, model: MODEL_MAIN, fallback: false };
 }
 
 /** DesignResponse → 既存 grader 用の RubricCheckResult[] に寄せる */

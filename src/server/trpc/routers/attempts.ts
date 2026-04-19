@@ -11,6 +11,7 @@ import {
   type RebuttalRecord,
 } from "@/db/schema";
 import {
+  DESIGN_CORRECT_THRESHOLD,
   DESIGN_MAX_AI_TURNS,
   DESIGN_PROMPT_VERSION,
   countAiTurns,
@@ -211,11 +212,12 @@ export const attemptsRouter = router({
       };
       const turnsWithUser = [...dialogue.turns, userTurn];
       // LLM に次ターンを聞く
-      const resp = await runDesignTurn({
+      const turnResult = await runDesignTurn({
         question: { prompt: question.prompt },
         initialUserAnswer: prev.userAnswer ?? "",
         turns: turnsWithUser,
       });
+      const resp = turnResult.response;
       const aiTurn: DialogueTurn = {
         role: "ai",
         message: resp.nextQuestion ?? resp.feedback ?? "",
@@ -227,27 +229,42 @@ export const attemptsRouter = router({
         finalized: resp.finalized,
       };
 
+      // Race 対策 (Codex Round 1 指摘 #1): UPDATE WHERE に「dialogue が未確定 (null or finalized=false)」
+      // を加えることで、SELECT と UPDATE の間に他リクエストが finalize した場合は 0 行更新で弾く。
+      // losing race 側は「既に確定済み」エラーを返す。
+      const unfinalizedGuard = sql`(${attempts.dialogue} IS NULL OR ${attempts.dialogue}->>'finalized' = 'false')`;
+
       if (resp.finalized) {
         const rubric = designRubricChecks(resp);
-        const correct = (resp.score ?? 0) >= 0.8;
-        await db
+        const correct = (resp.score ?? 0) >= DESIGN_CORRECT_THRESHOLD;
+        const updated = await db
           .update(attempts)
           .set({
             correct,
             score: resp.score,
             feedback: resp.feedback,
             rubricChecks: rubric,
-            gradedBy: "gpt-5",
+            // fallback 時は gradedBy を null にして「LLM が壊れて safe finalize」を識別可能に
+            gradedBy: turnResult.fallback ? null : turnResult.model,
             promptVersion: DESIGN_PROMPT_VERSION,
             dialogue: nextDialogue,
           })
-          .where(and(eq(attempts.id, prev.id), eq(attempts.userId, ctx.user.id)));
-        // design 採点確定 → mastery へ反映 (既存 drill 系と同じ経路)
-        await updateMasteryAfterAttempt({
-          userId: ctx.user.id,
-          conceptId: prev.conceptId,
-          score: resp.score,
-        });
+          .where(and(eq(attempts.id, prev.id), eq(attempts.userId, ctx.user.id), unfinalizedGuard))
+          .returning({ id: attempts.id });
+        if (updated.length === 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "この attempt の対話採点は既に確定しています (並行 finalize)",
+          });
+        }
+        // fallback (LLM が壊れた) ケースでは mastery を動かさない (強制 0.4 で FSRS を揺らすのは根拠が弱い)
+        if (!turnResult.fallback) {
+          await updateMasteryAfterAttempt({
+            userId: ctx.user.id,
+            conceptId: prev.conceptId,
+            score: resp.score,
+          });
+        }
         return {
           attemptId: prev.id,
           dialogue: nextDialogue,
@@ -259,11 +276,18 @@ export const attemptsRouter = router({
         };
       }
 
-      // 中間ターン: dialogue のみ更新
-      await db
+      // 中間ターン: dialogue のみ更新 (同じ race guard で並行 finalize と衝突しない)
+      const updated = await db
         .update(attempts)
         .set({ dialogue: nextDialogue })
-        .where(and(eq(attempts.id, prev.id), eq(attempts.userId, ctx.user.id)));
+        .where(and(eq(attempts.id, prev.id), eq(attempts.userId, ctx.user.id), unfinalizedGuard))
+        .returning({ id: attempts.id });
+      if (updated.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "この attempt の対話採点は既に確定しています (並行 finalize)",
+        });
+      }
       return {
         attemptId: prev.id,
         dialogue: nextDialogue,

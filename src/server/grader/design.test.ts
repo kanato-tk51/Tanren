@@ -51,7 +51,7 @@ describe("buildDesignPrompt", () => {
 });
 
 describe("runDesignTurn", () => {
-  it("正常系: LLM 応答をそのまま返す (finalized=false)", async () => {
+  it("正常系: LLM 応答を response に包んで返す (fallback=false)", async () => {
     const llm: DesignLlmCaller = async () => ({
       finalized: false,
       nextQuestion: "具体的な QPS は?",
@@ -67,11 +67,13 @@ describe("runDesignTurn", () => {
       },
       llm,
     );
-    expect(out.finalized).toBe(false);
-    expect(out.nextQuestion).toBe("具体的な QPS は?");
+    expect(out.fallback).toBe(false);
+    expect(out.response.finalized).toBe(false);
+    expect(out.response.nextQuestion).toBe("具体的な QPS は?");
+    expect(out.model).toBe("gpt-5");
   });
 
-  it("forceFinalize のときに LLM が finalized=false を返したら強制確定", async () => {
+  it("forceFinalize のときに LLM が finalized=false を返したら強制確定 (fallback=false)", async () => {
     const llm: DesignLlmCaller = async () => ({
       finalized: false,
       nextQuestion: "さらに聞きたい",
@@ -87,12 +89,13 @@ describe("runDesignTurn", () => {
       },
       llm,
     );
-    expect(out.finalized).toBe(true);
-    expect(out.nextQuestion).toBeNull();
-    expect(out.score).toBe(0.5); // fallback
+    expect(out.response.finalized).toBe(true);
+    expect(out.response.nextQuestion).toBeNull();
+    expect(out.response.score).toBe(0.5); // fallback within the prompt
+    expect(out.fallback).toBe(false); // LLM 応答は返ってきたので fallback=false
   });
 
-  it("LLM throw 時は中間点で safe finalize", async () => {
+  it("LLM throw 時は fallback=true + 中間点で safe finalize", async () => {
     const llm: DesignLlmCaller = async () => {
       throw new Error("LLM broke");
     };
@@ -100,9 +103,10 @@ describe("runDesignTurn", () => {
       { question: { prompt: "x" }, initialUserAnswer: "y", turns: [] },
       llm,
     );
-    expect(out.finalized).toBe(true);
-    expect(out.score).toBe(0.4);
-    expect(out.feedback).toMatch(/壊れ/);
+    expect(out.fallback).toBe(true);
+    expect(out.response.finalized).toBe(true);
+    expect(out.response.score).toBe(0.4);
+    expect(out.response.feedback).toMatch(/壊れ/);
   });
 });
 
