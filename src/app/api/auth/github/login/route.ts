@@ -10,14 +10,9 @@ import {
   loadGithubOAuthConfig,
   serializeOAuthState,
 } from "@/server/auth/github";
+import { redirectToLoginError } from "@/server/auth/redirect";
 
 export const dynamic = "force-dynamic";
-
-function errorRedirect(request: Request, code: string): NextResponse {
-  const url = new URL("/login", new URL(request.url).origin);
-  url.searchParams.set("error", code);
-  return NextResponse.redirect(url);
-}
 
 /** GitHub OAuth フロー開始。state + code_verifier を cookie に保存して GitHub にリダイレクト。 */
 export async function GET(request: Request) {
@@ -25,9 +20,9 @@ export async function GET(request: Request) {
   try {
     config = loadGithubOAuthConfig();
   } catch {
-    // callback と契約を揃える: /login?error=server_misconfigured に戻して UI 側の日本語
-    // メッセージを表示する (Codex PR#86 Round 3 指摘 #1)。
-    return errorRedirect(request, "server_misconfigured");
+    // callback と契約を揃える: /login?error=server_misconfigured に戻して UI 側の
+    // 日本語メッセージを表示する (Codex PR#86 Round 3 指摘 #1)。
+    return redirectToLoginError(request, "server_misconfigured");
   }
 
   const pkce = generatePkce();

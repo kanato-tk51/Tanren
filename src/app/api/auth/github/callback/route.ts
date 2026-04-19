@@ -13,17 +13,11 @@ import {
   findUserByGithubId,
   loadGithubOAuthConfig,
 } from "@/server/auth/github";
+import { publicBaseUrl, redirectToLoginError as errorRedirect } from "@/server/auth/redirect";
 import { createSession } from "@/server/auth/session";
 import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
-
-function errorRedirect(request: Request, code: string): NextResponse {
-  const base = new URL(request.url).origin;
-  const url = new URL("/login", base);
-  url.searchParams.set("error", code);
-  return NextResponse.redirect(url);
-}
 
 /** GitHub OAuth callback。state + PKCE 検証 → token 交換 → user 取得 → allowlist 照合 →
  *  既存 users 行 (bootstrap 済み) に session 発行して `/` に遷移する。
@@ -117,7 +111,9 @@ export async function GET(request: Request) {
   }
 
   const { sessionId, cookie } = await createSession(existing.id);
-  const res = NextResponse.redirect(new URL("/", url.origin));
+  // 公開 base URL を使って `/` にリダイレクト (reverse proxy 環境で request.url.origin が
+  // 内部 host になるケースに対応、Codex PR#86 Round 4 指摘 #1)。
+  const res = NextResponse.redirect(new URL("/", publicBaseUrl(request)));
   res.cookies.set({
     name: SESSION_COOKIE_NAME,
     value: sessionId,
