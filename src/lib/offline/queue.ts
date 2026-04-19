@@ -75,12 +75,16 @@ export async function enqueueSubmit(item: PendingSubmit): Promise<void> {
 export async function listPendingSubmits(): Promise<PendingSubmit[]> {
   const db = await openDb();
   try {
-    return await new Promise<PendingSubmit[]>((resolve, reject) => {
+    const rows = await new Promise<PendingSubmit[]>((resolve, reject) => {
       const tx = db.transaction(STORE_SUBMITS, "readonly");
       const req = tx.objectStore(STORE_SUBMITS).getAll();
       req.onsuccess = () => resolve(req.result as PendingSubmit[]);
       req.onerror = () => reject(req.error ?? new Error("IndexedDB getAll failed"));
     });
+    // enqueue 順 (FIFO) に明示 sort。同一 session 内で 2 件以上保留しているとき、
+    // drain を順不同で流すと server の pendingQuestionId チェックで後続が
+    // BAD_REQUEST になる (Codex Round 4 指摘 #1)。
+    return rows.slice().sort((a, b) => a.enqueuedAt.localeCompare(b.enqueuedAt));
   } finally {
     db.close();
   }

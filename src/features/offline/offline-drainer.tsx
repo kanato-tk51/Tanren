@@ -17,11 +17,10 @@ import { trpc } from "@/lib/trpc/react";
  *  onError からの wire-up は follow-up で対応、Codex Round 1 指摘 #2)。そのため現時点では
  *  queue は空のまま drainer は no-op。
  *
- *  userId は server (layout.tsx → AppShell) が解決したものを props で受ける。これは
- *  trpc.auth.me.useQuery を client で再度呼ぶと未ログインページで共有 React Query cache に
- *  { authenticated: false } が seed されて post-login 画面の initialData が無効化される
- *  回帰を避けるため (Codex Round 3 指摘)。AppShell 側が initialUserId=null なら mount
- *  自体をスキップするので、ここに来る時点で userId は必ず存在する。
+ *  mount 位置: HomeScreen のような認証済みページの内部で呼ぶ。root layout に置くと
+ *  公開ルート (/login 等) まで auth 解決を強制することになる (Codex Round 4 指摘 #3)。
+ *  userId は既に server で解決済み initialUser から受け取る前提。follow-up で
+ *  drill-screen に enqueue caller を配線する際に、drainer の置き場所も見直す。
  *
  *  マルチユーザー端末対策: drain 前に現在の userId と一致しないエントリは破棄する
  *  (enqueue 時の userId を PendingSubmit に保存、Codex Round 1 指摘 #3a)。

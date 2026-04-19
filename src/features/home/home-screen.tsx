@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { OfflineDrainer } from "@/features/offline/offline-drainer";
 import { trpc } from "@/lib/trpc/react";
 
 export type InitialHomeUser = {
@@ -88,25 +89,32 @@ export function HomeScreen({ initialUser }: { initialUser: InitialHomeUser }) {
 
   const { user } = me.data;
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader>
-        <CardTitle>ようこそ、{user.displayName ?? user.email}</CardTitle>
-        <CardDescription>{user.email}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
-        <div>
-          1日の目標: <span className="font-medium">{user.dailyGoal} 問</span>
-        </div>
-        <div className="text-muted-foreground">
-          Phase 0 bootstrap。Drill / Insights は別 issue で接続予定。
-        </div>
-      </CardContent>
-      <CardFooter>
-        <Button variant="outline" onClick={handleLogout} disabled={loggingOut}>
-          <LogOut className="mr-1 h-4 w-4" />
-          {loggingOut ? "ログアウト中…" : "ログアウト"}
-        </Button>
-      </CardFooter>
-    </Card>
+    <>
+      {/* OfflineDrainer を authenticated エントリ画面で mount する。root layout に置くと
+          /login など公開ルートでも auth 解決の責務が発生するため (Codex Round 4 指摘 #3)、
+          既に user を知っている HomeScreen 内に閉じる。follow-up で enqueue caller を
+          drill-screen に配線する際に drainer の置き場所も見直す予定。 */}
+      <OfflineDrainer userId={user.id} />
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle>ようこそ、{user.displayName ?? user.email}</CardTitle>
+          <CardDescription>{user.email}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <div>
+            1日の目標: <span className="font-medium">{user.dailyGoal} 問</span>
+          </div>
+          <div className="text-muted-foreground">
+            Phase 0 bootstrap。Drill / Insights は別 issue で接続予定。
+          </div>
+        </CardContent>
+        <CardFooter>
+          <Button variant="outline" onClick={handleLogout} disabled={loggingOut}>
+            <LogOut className="mr-1 h-4 w-4" />
+            {loggingOut ? "ログアウト中…" : "ログアウト"}
+          </Button>
+        </CardFooter>
+      </Card>
+    </>
   );
 }
