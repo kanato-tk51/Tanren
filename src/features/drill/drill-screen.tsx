@@ -12,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { enqueueSubmit } from "@/lib/offline/queue";
 import { trpc } from "@/lib/trpc/react";
 
 import { CopyForLlmButton } from "./copy-for-llm-button";
@@ -44,6 +45,10 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
   const nextMutation = trpc.session.next.useMutation();
   const submitMutation = trpc.session.submit.useMutation();
   const finishMutation = trpc.session.finish.useMutation();
+  // オフライン時の保留 enqueue (issue #40 follow-up)。認証済み前提 (`(app)/layout.tsx`
+  // で redirect 済み) だが、enqueue には userId が必要なので auth.me を引く。
+  const authMe = trpc.auth.me.useQuery(undefined, { staleTime: 60_000 });
+  const currentUserId = authMe.data?.authenticated ? authMe.data.user.id : null;
 
   const pending =
     startMutation.isPending ||
@@ -113,9 +118,38 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
         rubricChecks: normalizeRubricChecks(result.rubricChecks),
       });
     } catch (e) {
+      // オフライン (navigator.onLine=false) 時は submit を IndexedDB に保留し、
+      // OfflineDrainer が online 復帰時に自動で再送する (issue #40 wire-up)。
+      // userId が取れているときだけ enqueue、失敗しても errorMessage は従来どおり出す。
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      if (offline && currentUserId) {
+        try {
+          await enqueueSubmit({
+            clientId: crypto.randomUUID(),
+            userId: currentUserId,
+            sessionId,
+            questionId: question.id,
+            userAnswer: answer,
+            enqueuedAt: new Date().toISOString(),
+          });
+          setErrorMessage("オフラインのため保留しました。オンライン復帰時に自動送信されます。");
+          return;
+        } catch {
+          // IndexedDB が使えない (Safari private mode 等) ケースは素のエラーに落ちる
+        }
+      }
       setErrorMessage(toMessage(e));
     }
-  }, [sessionId, question, selectedIndex, textAnswer, isTextInput, submitMutation, setGrading]);
+  }, [
+    sessionId,
+    question,
+    selectedIndex,
+    textAnswer,
+    isTextInput,
+    submitMutation,
+    setGrading,
+    currentUserId,
+  ]);
 
   const handleRetry = useCallback(() => {
     setErrorMessage(null);
