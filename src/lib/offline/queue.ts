@@ -93,9 +93,36 @@ export async function enqueueSubmit(item: PendingSubmit): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_SUBMITS, "readwrite");
-    // sequence は autoIncrement で自動採番。同一 clientId は IDX_CLIENT_ID の UNIQUE
-    // 制約で弾かれる (caller 側の二重 enqueue を防ぐ)。
-    tx.objectStore(STORE_SUBMITS).add(item);
+    const store = tx.objectStore(STORE_SUBMITS);
+    // (sessionId, questionId) 単位で upsert する。caller (drill-screen) が同じ問題に
+    // 対して回答を修正して再 submit したら、queue 内エントリは最新 userAnswer に
+    // 更新する (Codex PR#87 Round 2 指摘 #2: 黙って最初の回答だけ残すと画面表示と
+    // ズレる)。連打による queue 膨張も (Codex PR#87 Round 1 指摘 #1) 同時に防げる。
+    const getReq = store.getAll();
+    getReq.onsuccess = () => {
+      const rows = getReq.result as StoredSubmit[];
+      const existing = rows.find(
+        (p) => p.sessionId === item.sessionId && p.questionId === item.questionId,
+      );
+      if (existing && existing.sequence !== undefined) {
+        // 同一 (sessionId, questionId) を最新内容で上書き。sequence は保持して FIFO
+        // 順を崩さない。clientId は回答が変わったときに付け直したいので caller 値を使う。
+        store.put({
+          ...item,
+          sequence: existing.sequence,
+          // submittedAt が前 pass で付与されていたら「drain 待ちの cleanup」状態。
+          // 新しい回答として上書きする場合は印を剥がして、次 drain で再 submit するように。
+          submittedAt: undefined,
+          // retryCount もリセット (新しい回答なので過去の失敗回数は引き継がない)
+          retryCount: 0,
+        });
+      } else {
+        // sequence は autoIncrement で自動採番。同一 clientId は IDX_CLIENT_ID の
+        // UNIQUE 制約で弾かれる (caller 側の二重 enqueue を防ぐ)。
+        store.add(item);
+      }
+    };
+    getReq.onerror = () => reject(getReq.error ?? new Error("IndexedDB getAll failed"));
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error ?? new Error("IndexedDB add failed"));
   });

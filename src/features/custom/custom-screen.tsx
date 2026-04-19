@@ -167,7 +167,11 @@ export function CustomScreen({
   );
 
   if (phase.kind === "running") {
-    return <DrillScreen onReset={backToInput} skipInitialStartCard />;
+    // pending-offline は未完了離脱扱い、backToInput で入力画面に戻す (完了時と同じ挙動
+    // でよい: custom は完了しても結果カードを持たず backToInput に戻るため)。
+    return (
+      <DrillScreen onReset={backToInput} onOfflinePendingLeave={backToInput} skipInitialStartCard />
+    );
   }
 
   return (

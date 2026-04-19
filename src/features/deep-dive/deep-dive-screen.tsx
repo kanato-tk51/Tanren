@@ -74,6 +74,14 @@ export function DeepDiveScreen({ domainId, returnTo }: { domainId: DomainId; ret
           // Insights の Weakest カード発は `?returnTo=/insights` を付けて従来挙動を維持。
           router.push(safeReturnTo);
         }}
+        // offline 保留離脱時は、未完了扱いのまま同じ returnTo に戻す。完了時の onReset
+        // と揃えているが、挙動としては未完了なので DeepDive 側の phase も idle に戻す
+        // (Codex PR#87 Round 4 指摘: onReset 流用で未完了扱いが崩れる)。
+        onOfflinePendingLeave={() => {
+          reset();
+          setPhase({ kind: "idle" });
+          router.push(safeReturnTo);
+        }}
         skipInitialStartCard
       />
     );

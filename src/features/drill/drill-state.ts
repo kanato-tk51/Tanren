@@ -52,7 +52,13 @@ export type DrillSummary = {
   accuracy: number;
 };
 
-type Phase = "idle" | "asking" | "graded" | "finished";
+/** `pending-offline` はオフラインで enqueueSubmit 済みかつ次 drain 待ちの状態 (issue #40)。
+ *  submit / 再試行は無効化、画面は「接続復帰後に採点されます」メッセージを出す。
+ *  online 復帰後に OfflineDrainer が drain すると pendingQuestionId がサーバー側で
+ *  進むため、同じ UI から再 submit するとミスマッチで BAD_REQUEST になる。そのため
+ *  このフェーズは「ホームに戻る」以外の次遷移を持たない閉じた状態として扱う
+ *  (Codex PR#87 Round 3 指摘)。 */
+type Phase = "idle" | "asking" | "graded" | "pending-offline" | "finished";
 
 export type DrillState = {
   phase: Phase;
@@ -75,6 +81,8 @@ type Actions = {
   setGrading: (g: DrillGrading) => void;
   updateGrading: (patch: Partial<DrillGrading>) => void;
   setSummary: (s: DrillSummary) => void;
+  /** オフラインで enqueue 済み状態に遷移。submit / 再試行を抑止する */
+  setPendingOffline: () => void;
 };
 
 export const useDrillStore = create<DrillState & Actions>((set) => ({
@@ -126,4 +134,6 @@ export const useDrillStore = create<DrillState & Actions>((set) => ({
   updateGrading: (patch) => set((s) => (s.grading ? { grading: { ...s.grading, ...patch } } : {})),
 
   setSummary: (s) => set({ summary: s, phase: "finished" }),
+
+  setPendingOffline: () => set({ phase: "pending-offline" }),
 }));

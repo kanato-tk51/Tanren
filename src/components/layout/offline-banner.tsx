@@ -5,9 +5,11 @@ import { WifiOff } from "lucide-react";
 import { useOnlineStatus } from "@/lib/offline/use-online-status";
 
 /** オフライン状態を知らせる上部 banner (issue #40)。
- *  本 PR では接続状態表示のみ。保留キュー (OfflineDrainer / enqueueSubmit) の caller 配線は
- *  follow-up PR で行うため、banner 文言も「自動送信」等の実挙動に反する断定を避け、
- *  単に接続状態を示すだけにしている (Codex Round 2 指摘 #1)。 */
+ *  文言は保守的に「接続が戻るまで一部の操作ができません」に留める: IndexedDB が使えない
+ *  (Safari private mode 等) ケースや currentUserId が取れないケースでは enqueue されず
+ *  通常エラーに落ちるため、常に「自動送信されます」と断定できない (Codex PR#87 Round 1
+ *  指摘 #2)。queue が動いたときは drill-screen 側の個別メッセージ「オフラインのため
+ *  保留しました。オンライン復帰時に自動送信されます。」で明示する。 */
 export function OfflineBanner() {
   const online = useOnlineStatus();
   if (online) return null;

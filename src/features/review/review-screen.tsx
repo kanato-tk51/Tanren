@@ -54,7 +54,11 @@ export function ReviewScreen() {
   }, [reset]);
 
   if (phase.kind === "running") {
-    return <DrillScreen onReset={backToIdle} skipInitialStartCard />;
+    // pending-offline は未完了離脱なので backToIdle と同じ扱い (Review は完了時も
+    // backToIdle するため、両方とも reset → idle 表示でよい)。
+    return (
+      <DrillScreen onReset={backToIdle} onOfflinePendingLeave={backToIdle} skipInitialStartCard />
+    );
   }
 
   return (

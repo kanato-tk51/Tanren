@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, Check, Loader2, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useUserId } from "@/features/auth/user-context";
+import { enqueueSubmit } from "@/lib/offline/queue";
 import { trpc } from "@/lib/trpc/react";
 
 import { CopyForLlmButton } from "./copy-for-llm-button";
@@ -24,26 +27,58 @@ type DrillScreenProps = {
    *  最終 summary を引数で渡す: 親側は reset() で store がクリアされる前にスナップショット
    *  できる (issue #26 onboarding 結果カード用、Codex Round 1 指摘 #1)。 */
   onReset?: (finalSummary: import("./drill-state").DrillSummary | null) => void;
+  /** pending-offline (enqueue 済み / 未完了離脱) から抜ける時の挙動。onReset とは意味が
+   *  違うので分離した (Codex PR#87 Round 4 指摘): onReset は「セッション完了時の結果カード」
+   *  側で使われるので、onboarding 等では completion 扱いされる副作用がある。
+   *  default は `/` に遷移 (/drill 直接起動のケース)。onboarding / deep-dive / custom /
+   *  review など埋め込み先は、未完了離脱用の専用ハンドラを渡す。 */
+  onOfflinePendingLeave?: () => void;
   /** idle で出るスタートカードの挙動を差し替える (例: /custom では使わない) */
   skipInitialStartCard?: boolean;
 };
 
-export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps = {}) {
+export function DrillScreen({
+  onReset,
+  onOfflinePendingLeave,
+  skipInitialStartCard,
+}: DrillScreenProps = {}) {
+  const router = useRouter();
   const { phase, sessionId, question, selectedIndex, textAnswer, grading, summary } =
     useDrillStore();
-  const { reset, setSession, setQuestion, setSelected, setTextAnswer, setGrading, setSummary } =
-    useDrillStore();
+  const {
+    reset,
+    setSession,
+    setQuestion,
+    setSelected,
+    setTextAnswer,
+    setGrading,
+    setSummary,
+    setPendingOffline,
+  } = useDrillStore();
 
   // mcq 以外 (cloze / code_read / short / written) は textarea で自由入力
   const isTextInput = question?.type !== "mcq";
   // 既定 (onReset 未指定) は zustand reset。引数 finalSummary は無視されるが
   // 関数シグネチャは optional 引数で互換 (custom / review もそのまま動く)。
   const handleReset = onReset ?? (() => reset());
+  // pending-offline 離脱用。default は store reset + `/` に戻る (/drill 直起動時)。
+  // 埋め込み先は未完了離脱を独自に扱えるよう onOfflinePendingLeave を渡す。
+  const handleOfflineLeave =
+    onOfflinePendingLeave ??
+    (() => {
+      reset();
+      router.push("/");
+    });
 
   const startMutation = trpc.session.start.useMutation();
   const nextMutation = trpc.session.next.useMutation();
   const submitMutation = trpc.session.submit.useMutation();
   const finishMutation = trpc.session.finish.useMutation();
+  // オフライン保留 enqueue に使う userId。`(app)/layout.tsx` の UserIdProvider が
+  // server-resolved な値を同期的に流してくれるので、query 解決待ちがない
+  // (Codex PR#87 Round 2 指摘 #1)。`/` の HomeScreen 側で mount される DrillScreen
+  // のケースは ADR-0006 上ありえないが、防御のため null ガードは残す。
+  const currentUserId = useUserId();
 
   const pending =
     startMutation.isPending ||
@@ -113,9 +148,43 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
         rubricChecks: normalizeRubricChecks(result.rubricChecks),
       });
     } catch (e) {
+      // オフライン (navigator.onLine=false) 時は submit を IndexedDB に保留し、
+      // OfflineDrainer が online 復帰時に自動で再送する (issue #40 wire-up)。
+      // userId が取れているときだけ enqueue、失敗しても errorMessage は従来どおり出す。
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      if (offline && currentUserId) {
+        try {
+          await enqueueSubmit({
+            clientId: crypto.randomUUID(),
+            userId: currentUserId,
+            sessionId,
+            questionId: question.id,
+            userAnswer: answer,
+            enqueuedAt: new Date().toISOString(),
+          });
+          // enqueue 成功 → submit / 再試行を抑止する pending-offline phase に遷移する
+          // (Codex PR#87 Round 3 指摘)。ここで phase を変えないと OfflineDrainer が
+          // 裏で drain したあと同じ UI から再 submit され pendingQuestionId 不一致で
+          // BAD_REQUEST → 詰む。ホームに戻る以外の遷移は持たせない。
+          setPendingOffline();
+          return;
+        } catch {
+          // IndexedDB が使えない (Safari private mode 等) ケースは素のエラーに落ちる
+        }
+      }
       setErrorMessage(toMessage(e));
     }
-  }, [sessionId, question, selectedIndex, textAnswer, isTextInput, submitMutation, setGrading]);
+  }, [
+    sessionId,
+    question,
+    selectedIndex,
+    textAnswer,
+    isTextInput,
+    submitMutation,
+    setGrading,
+    setPendingOffline,
+    currentUserId,
+  ]);
 
   const handleRetry = useCallback(() => {
     setErrorMessage(null);
@@ -265,6 +334,30 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
           <Button onClick={handleStart} disabled={pending} className="min-h-12 px-6">
             {pending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
             スタート
+          </Button>
+        </CardFooter>
+      </Card>
+    );
+  }
+
+  if (phase === "pending-offline") {
+    // offline enqueue 成功後の閉じた状態。drain 完了後に pendingQuestionId が進んで
+    // 同じ UI から再 submit すると BAD_REQUEST になるため、「ホームに戻る」以外の
+    // 遷移は持たせない (Codex PR#87 Round 3 指摘)。
+    return (
+      <Card className="w-full max-w-xl">
+        <CardHeader>
+          <CardTitle>オフラインで保留しました</CardTitle>
+          <CardDescription>
+            回答は端末に保存されました。オンライン復帰時に自動送信されます。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-muted-foreground text-sm">
+          送信と採点はバックグラウンドで行われます。続きは次回のセッションでどうぞ。
+        </CardContent>
+        <CardFooter>
+          <Button onClick={handleOfflineLeave} className="min-h-12 px-6">
+            ホームに戻る
           </Button>
         </CardFooter>
       </Card>
