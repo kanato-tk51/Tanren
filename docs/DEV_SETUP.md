@@ -73,6 +73,7 @@ pnpm add -D drizzle-kit vitest @vitest/coverage-v8 @vitejs/plugin-react \
 
 その後 `package.json` の `scripts` に以下を足す:
 
+<!-- prettier-ignore -->
 ```jsonc
 {
   "scripts": {
@@ -128,6 +129,7 @@ pnpm lefthook install
 ### 3.2. Actions 権限
 
 **Settings → Actions → General**:
+
 - Workflow permissions: **Read repository contents and packages permissions** (デフォルト)
 - Allow GitHub Actions to create and approve pull requests: **無効**
 
@@ -219,6 +221,7 @@ pnpm auth:bootstrap
 ```
 
 このラッパは:
+
 1. `vercel env pull` で `mktemp` の一時ファイルに Development env を取得
 2. `source` して `export` し、引数のコマンドを実行
 3. 終了時に trap で一時ファイルを必ず削除
@@ -265,10 +268,36 @@ PR テンプレートのチェックを埋めて、CI が緑なら self-approve 
 
 ## 7. トラブルシュート
 
-| 症状 | 対処 |
-|---|---|
-| `pnpm install` が遅い | `.pnpm-store` の場所を SSD に (`pnpm config set store-dir`) |
-| CI がずっと skip | Phase 0 前は `package.json` が無いため意図通り。Day 1 で解消 |
-| Passkey がブラウザで動かない | `WEBAUTHN_RP_ID` と `WEBAUTHN_ORIGIN` が一致しているか確認 |
-| Neon で `SSL required` | 接続文字列の末尾に `?sslmode=require` を付ける |
-| OpenAI `rate_limit` | Usage limit に到達していないか確認、モデル/Tier を見直す |
+| 症状                                                                           | 対処                                                         |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| `pnpm install` が遅い                                                          | `.pnpm-store` の場所を SSD に (`pnpm config set store-dir`)  |
+| CI がずっと skip                                                               | Phase 0 前は `package.json` が無いため意図通り。Day 1 で解消 |
+| Passkey がブラウザで動かない                                                   | `WEBAUTHN_RP_ID` と `WEBAUTHN_ORIGIN` が一致しているか確認   |
+| Neon で `SSL required`                                                         | 接続文字列の末尾に `?sslmode=require` を付ける               |
+| OpenAI `rate_limit`                                                            | Usage limit に到達していないか確認、モデル/Tier を見直す     |
+| `pnpm install` で `lefthook install` が `core.hooksPath is set locally` で失敗 | 下記 **7.1 を参照** (issue #45)                              |
+
+### 7.1. `core.hooksPath` 衝突で `lefthook install` が失敗する場合
+
+`pnpm install` で `prepare` スクリプトの `lefthook install` が以下のエラーで落ちることがある:
+
+```
+Error: core.hooksPath is set locally to '/path/to/Tanren/.git/hooks'
+hint: Unset it:
+hint:   git config --unset-all --local core.hooksPath
+```
+
+ローカルの `git config core.hooksPath` がデフォルトと同じ `.git/hooks` に**明示的にセット**されていると、lefthook が「他ツールが hooksPath を差し替えている可能性がある」と判断して上書きを拒否するために発生する。値はデフォルトパスと同じなので機能上の意味はなく、単に `git` の内部状態が「未設定」と「明示セット」で扱いが違うだけ。
+
+**対処 (どちらか 1 つ)**:
+
+```bash
+# A) 明示セットを外す (推奨、未設定に戻るので副作用なし)
+git config --unset-all --local core.hooksPath
+pnpm install
+
+# B) lefthook の --reset-hooks-path で unset を自動化する (A と同じ効果)
+pnpm lefthook install --reset-hooks-path
+```
+
+`prepare` スクリプトに `--force` / `--reset-hooks-path` を入れる案もあるが、他ツールが hooksPath を意図的に差し替えているケースを黙って上書きしてしまうため採用しない (個人プロダクトでも他人の環境に副作用を残さない方針)。
