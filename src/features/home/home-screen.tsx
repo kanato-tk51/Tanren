@@ -132,11 +132,19 @@ function HomeHeader({
 }) {
   return (
     <div className="flex items-start justify-between gap-2">
-      <div>
-        <h1 className="text-lg font-semibold">ようこそ、{displayName}</h1>
-        <p className="text-muted-foreground text-xs">{email}</p>
+      {/* displayName / email は text カラムで長さ無制限。モバイルで右の
+          ログアウトボタンを押し出さないよう min-w-0 + truncate で抑える。 */}
+      <div className="min-w-0 flex-1">
+        <h1 className="truncate text-lg font-semibold">ようこそ、{displayName}</h1>
+        <p className="text-muted-foreground truncate text-xs">{email}</p>
       </div>
-      <Button variant="outline" size="sm" onClick={onLogout} disabled={loggingOut}>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onLogout}
+        disabled={loggingOut}
+        className="shrink-0"
+      >
         <LogOut className="mr-1 h-4 w-4" />
         {loggingOut ? "ログアウト中…" : "ログアウト"}
       </Button>
