@@ -33,8 +33,16 @@ type DrillScreenProps = {
 export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps = {}) {
   const { phase, sessionId, question, selectedIndex, textAnswer, grading, summary } =
     useDrillStore();
-  const { reset, setSession, setQuestion, setSelected, setTextAnswer, setGrading, setSummary } =
-    useDrillStore();
+  const {
+    reset,
+    setSession,
+    setQuestion,
+    setSelected,
+    setTextAnswer,
+    setGrading,
+    setSummary,
+    setPendingOffline,
+  } = useDrillStore();
 
   // mcq 以外 (cloze / code_read / short / written) は textarea で自由入力
   const isTextInput = question?.type !== "mcq";
@@ -134,7 +142,11 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
             userAnswer: answer,
             enqueuedAt: new Date().toISOString(),
           });
-          setErrorMessage("オフラインのため保留しました。オンライン復帰時に自動送信されます。");
+          // enqueue 成功 → submit / 再試行を抑止する pending-offline phase に遷移する
+          // (Codex PR#87 Round 3 指摘)。ここで phase を変えないと OfflineDrainer が
+          // 裏で drain したあと同じ UI から再 submit され pendingQuestionId 不一致で
+          // BAD_REQUEST → 詰む。ホームに戻る以外の遷移は持たせない。
+          setPendingOffline();
           return;
         } catch {
           // IndexedDB が使えない (Safari private mode 等) ケースは素のエラーに落ちる
@@ -150,6 +162,7 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
     isTextInput,
     submitMutation,
     setGrading,
+    setPendingOffline,
     currentUserId,
   ]);
 
@@ -301,6 +314,36 @@ export function DrillScreen({ onReset, skipInitialStartCard }: DrillScreenProps 
           <Button onClick={handleStart} disabled={pending} className="min-h-12 px-6">
             {pending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
             スタート
+          </Button>
+        </CardFooter>
+      </Card>
+    );
+  }
+
+  if (phase === "pending-offline") {
+    // offline enqueue 成功後の閉じた状態。drain 完了後に pendingQuestionId が進んで
+    // 同じ UI から再 submit すると BAD_REQUEST になるため、「ホームに戻る」以外の
+    // 遷移は持たせない (Codex PR#87 Round 3 指摘)。
+    return (
+      <Card className="w-full max-w-xl">
+        <CardHeader>
+          <CardTitle>オフラインで保留しました</CardTitle>
+          <CardDescription>
+            回答は端末に保存されました。オンライン復帰時に自動送信されます。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-muted-foreground text-sm">
+          送信と採点はバックグラウンドで行われます。続きは次回のセッションでどうぞ。
+        </CardContent>
+        <CardFooter>
+          <Button
+            onClick={() => {
+              reset();
+              handleReset(null);
+            }}
+            className="min-h-12 px-6"
+          >
+            ホームに戻る
           </Button>
         </CardFooter>
       </Card>
