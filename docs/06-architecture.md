@@ -15,7 +15,7 @@
                  │ tRPC (cookie session)
 ┌────────────────▼─────────────────────────────┐
 │ Next.js API Layer (App Router Route Handlers)│
-│  ├─ auth        (Passkey 登録/認証、セッション) │
+│  ├─ auth        (GitHub OAuth、セッション)       │
 │  ├─ scheduler   (FSRS → 次の concept/問題)   │
 │  ├─ generator   (OpenAI API 呼び出し)         │
 │  ├─ grader      (OpenAI API 呼び出し)         │
@@ -41,21 +41,19 @@ Phase 5+ で追加:
 
 ### 6.2.1. テーブル一覧と役割
 
-| テーブル              | 役割                                      |
-| --------------------- | ----------------------------------------- |
-| `users`               | ユーザー情報、設定                        |
-| `credentials`         | Passkey クレデンシャル (ADR-0004)         |
-| `sessions_auth`       | 認証セッション (cookie)                   |
-| `webauthn_challenges` | Passkey 登録/認証時の一時チャレンジ       |
-| `concepts`            | 知識ツリーのマスタ                        |
-| `questions`           | 生成済み問題のキャッシュ                  |
-| `sessions`            | 学習セッション (Daily/Deep/Custom/Review) |
-| `attempts`            | 1 問ごとの解答履歴                        |
-| `mastery`             | FSRS 状態 (user × concept)                |
-| `misconceptions`      | 誤概念トラッカー                          |
-| `session_templates`   | Custom Session のテンプレ                 |
-| `daily_stats`         | 日次集計キャッシュ                        |
-| `attempts_search`     | 全文検索用 tsvector カラム付き view       |
+| テーブル            | 役割                                      |
+| ------------------- | ----------------------------------------- |
+| `users`             | ユーザー情報、GitHub user id、設定        |
+| `sessions_auth`     | 認証セッション (cookie)                   |
+| `concepts`          | 知識ツリーのマスタ                        |
+| `questions`         | 生成済み問題のキャッシュ                  |
+| `sessions`          | 学習セッション (Daily/Deep/Custom/Review) |
+| `attempts`          | 1 問ごとの解答履歴                        |
+| `mastery`           | FSRS 状態 (user × concept)                |
+| `misconceptions`    | 誤概念トラッカー                          |
+| `session_templates` | Custom Session のテンプレ                 |
+| `daily_stats`       | 日次集計キャッシュ                        |
+| `attempts_search`   | 全文検索用 tsvector カラム付き view       |
 
 ### 6.2.2. スキーマ定義 (PostgreSQL 16+)
 
@@ -97,22 +95,9 @@ CREATE TABLE users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Passkey クレデンシャル (ADR-0004)
-CREATE TABLE credentials (
-  id TEXT PRIMARY KEY,                          -- credentialId (base64url)
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  public_key BYTEA NOT NULL,
-  counter BIGINT NOT NULL DEFAULT 0,
-  device_type TEXT,                             -- 'singleDevice' | 'multiDevice'
-  backed_up BOOLEAN NOT NULL DEFAULT FALSE,
-  transports JSONB DEFAULT '[]'::jsonb,
-  nickname TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_used_at TIMESTAMPTZ
-);
-CREATE INDEX idx_credentials_user ON credentials(user_id);
-
--- 認証セッション (cookie)
+-- 認証セッション (cookie)。ADR-0006 で GitHub OAuth に移行後も sessions_auth は流用。
+-- GitHub OAuth の state / code_verifier は DB ではなく短命 cookie
+-- (__Host-tanren_oauth_state) に JSON で詰めて持ち運ぶ。
 CREATE TABLE sessions_auth (
   id TEXT PRIMARY KEY,                          -- crypto.randomUUID()
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -122,16 +107,6 @@ CREATE TABLE sessions_auth (
 );
 CREATE INDEX idx_sessions_auth_user ON sessions_auth(user_id);
 CREATE INDEX idx_sessions_auth_expires ON sessions_auth(expires_at);
-
--- WebAuthn チャレンジ一時保管
-CREATE TABLE webauthn_challenges (
-  id TEXT PRIMARY KEY,
-  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
-  challenge TEXT NOT NULL,
-  purpose TEXT NOT NULL,                        -- 'register' | 'authenticate'
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  expires_at TIMESTAMPTZ NOT NULL
-);
 
 -- 生成済み問題キャッシュ
 CREATE TABLE questions (
@@ -407,46 +382,46 @@ function priority(concept: Concept, mastery: Mastery): number {
 
 ### 6.5.1. MVP 採用
 
-| レイヤ            | 採用技術                                                       | 理由                                               |
-| ----------------- | -------------------------------------------------------------- | -------------------------------------------------- |
-| Framework         | **Next.js 15 (App Router)**                                    | SSR/ISR 柔軟、Route Handlers で API 統合           |
-| Language          | **TypeScript (strict)**                                        | 型安全                                             |
-| Runtime           | **Node.js 22 LTS**                                             | Vercel デフォルト、安定運用                        |
-| パッケージ管理    | **pnpm 10.x**                                                  | ADR-0002                                           |
-| DB                | **Neon (PostgreSQL 16+)**                                      | ADR-0003。Vercel 公式統合、tsvector/GIN による FTS |
-| DB ドライバ       | **`@neondatabase/serverless`**                                 | HTTP fetch 経由、Edge runtime 互換                 |
-| ORM               | **Drizzle (pg dialect)**                                       | 型安全、マイグレーション直感的                     |
-| API               | **tRPC**                                                       | 型安全 RPC                                         |
-| Auth              | **Passkey (WebAuthn)** — `@simplewebauthn/server` + `/browser` | ADR-0004。パスワード / OAuth 併設しない            |
-| LLM               | **OpenAI API (`gpt-5` / `gpt-5-mini`)**                        | ADR-0005                                           |
-| UI                | **shadcn/ui + Tailwind**                                       | 短時間で整った UI                                  |
-| Code Editor       | **CodeMirror 6**                                               | 軽量、モバイル可                                   |
-| Charts (Phase 2+) | **Recharts**                                                   | MVP はテキスト表のみ                               |
-| State             | **TanStack Query + Zustand**                                   | サーバー状態 + UI 状態                             |
-| URL 状態          | **nuqs**                                                       | フィルタなどの URL 同期                            |
-| i18n              | 日本語のみ                                                     | スコープ絞る                                       |
-| PWA               | **自作 Service Worker** (`public/sw.js`)                       | Serwist / next-pwa は未導入 (依存削減のため)       |
-| Deploy            | **Vercel Hobby**                                               | Next.js と Neon の連携が公式                       |
-| 監視              | **Sentry (Free tier)**                                         | エラー追跡                                         |
-| テスト            | **Vitest**                                                     | unit/integration                                   |
-| メール (Phase 3+) | **Resend**                                                     | Weekly Digest / reminder                           |
+| レイヤ            | 採用技術                                                                  | 理由                                                                              |
+| ----------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Framework         | **Next.js 15 (App Router)**                                               | SSR/ISR 柔軟、Route Handlers で API 統合                                          |
+| Language          | **TypeScript (strict)**                                                   | 型安全                                                                            |
+| Runtime           | **Node.js 22 LTS**                                                        | Vercel デフォルト、安定運用                                                       |
+| パッケージ管理    | **pnpm 10.x**                                                             | ADR-0002                                                                          |
+| DB                | **Neon (PostgreSQL 16+)**                                                 | ADR-0003。Vercel 公式統合、tsvector/GIN による FTS                                |
+| DB ドライバ       | **`@neondatabase/serverless`**                                            | HTTP fetch 経由、Edge runtime 互換                                                |
+| ORM               | **Drizzle (pg dialect)**                                                  | 型安全、マイグレーション直感的                                                    |
+| API               | **tRPC**                                                                  | 型安全 RPC                                                                        |
+| Auth              | **GitHub OAuth 2.0 (Authorization Code + PKCE)** — `fetch` + `zod` 直叩き | ADR-0006。旧 Passkey (ADR-0004) から置き換え。他プロバイダ / パスワード併設しない |
+| LLM               | **OpenAI API (`gpt-5` / `gpt-5-mini`)**                                   | ADR-0005                                                                          |
+| UI                | **shadcn/ui + Tailwind**                                                  | 短時間で整った UI                                                                 |
+| Code Editor       | **CodeMirror 6**                                                          | 軽量、モバイル可                                                                  |
+| Charts (Phase 2+) | **Recharts**                                                              | MVP はテキスト表のみ                                                              |
+| State             | **TanStack Query + Zustand**                                              | サーバー状態 + UI 状態                                                            |
+| URL 状態          | **nuqs**                                                                  | フィルタなどの URL 同期                                                           |
+| i18n              | 日本語のみ                                                                | スコープ絞る                                                                      |
+| PWA               | **自作 Service Worker** (`public/sw.js`)                                  | Serwist / next-pwa は未導入 (依存削減のため)                                      |
+| Deploy            | **Vercel Hobby**                                                          | Next.js と Neon の連携が公式                                                      |
+| 監視              | **Sentry (Free tier)**                                                    | エラー追跡                                                                        |
+| テスト            | **Vitest**                                                                | unit/integration                                                                  |
+| メール (Phase 3+) | **Resend**                                                                | Weekly Digest / reminder                                                          |
 
 ### 6.5.2. 意図的に MVP で入れないもの
 
-| 技術                        | 入れない理由                     | 再検討タイミング             |
-| --------------------------- | -------------------------------- | ---------------------------- |
-| Upstash Redis               | 1 ユーザーで rate limit 不要     | 公開時 or 並列ユーザー発生時 |
-| PostHog                     | Insights 画面で代用              | 公開時                       |
-| Logtail                     | Sentry + Vercel ログで十分       | ログ量増加時                 |
-| Web Push                    | iOS PWA 制約 (`7.5.5`)           | Phase 5+                     |
-| `gpt-5` with high reasoning | コスト高、MVP は通常推論で足りる | Phase 2+                     |
-| Judge0 (コード実行)         | MVP 対象外                       | Phase 6                      |
-| OAuth (Google / GitHub)     | Passkey 一本 (ADR-0004)          | 公開時                       |
+| 技術                              | 入れない理由                     | 再検討タイミング             |
+| --------------------------------- | -------------------------------- | ---------------------------- |
+| Upstash Redis                     | 1 ユーザーで rate limit 不要     | 公開時 or 並列ユーザー発生時 |
+| PostHog                           | Insights 画面で代用              | 公開時                       |
+| Logtail                           | Sentry + Vercel ログで十分       | ログ量増加時                 |
+| Web Push                          | iOS PWA 制約 (`7.5.5`)           | Phase 5+                     |
+| `gpt-5` with high reasoning       | コスト高、MVP は通常推論で足りる | Phase 2+                     |
+| Judge0 (コード実行)               | MVP 対象外                       | Phase 6                      |
+| 追加 OAuth プロバイダ (Google 等) | GitHub OAuth 一本 (ADR-0006)     | 公開時                       |
 
 ### 6.5.3. メモ
 
 - Neon 無料枠: 0.5GB / 3 プロジェクト / 常時接続 (Autosuspend あり)。個人用で十分
-- Passkey 実装は 200 行程度で完結、外部依存は `@simplewebauthn/*` のみ
+- GitHub OAuth 実装は 250 行程度で完結、外部 OAuth ライブラリに依存せず fetch + zod のみ (ADR-0006)
 
 ---
 
@@ -465,9 +440,11 @@ function priority(concept: Concept, mastery: Mastery): number {
 DATABASE_URL=                # Neon: postgresql://user:pass@host/db?sslmode=require
 OPENAI_API_KEY=
 SESSION_COOKIE_SECRET=       # openssl rand -hex 32
-WEBAUTHN_RP_ID=              # 開発時 'localhost', 本番は 'tanren.example.com'
-WEBAUTHN_RP_NAME=Tanren
-WEBAUTHN_ORIGIN=              # 開発時 http://localhost:3000, 本番は https://tanren.example.com
+GITHUB_CLIENT_ID=            # ADR-0006 GitHub OAuth App の Client ID
+GITHUB_CLIENT_SECRET=        # 同上 Client Secret
+GITHUB_ALLOWED_USER_ID=      # 許可する 1 GitHub user id (bigint)。bootstrap 済み行の github_user_id と一致
+# OPTIONAL: request host が信頼できない特殊環境でのみ設定 (通常は自動推論)
+# GITHUB_CALLBACK_URL=
 NEXT_PUBLIC_APP_URL=
 SENTRY_DSN=
 SENTRY_AUTH_TOKEN=
@@ -510,7 +487,7 @@ Tanren/
 │   ├── app/                       # Next.js App Router (flat 構成、route group 未使用)
 │   │   ├── layout.tsx             # RootLayout + SW register + nuqs + trpc
 │   │   ├── page.tsx               # /
-│   │   ├── login/                 # /login (Passkey)
+│   │   ├── login/                 # /login (GitHub OAuth)
 │   │   ├── drill/                 # /drill
 │   │   ├── custom/                # /custom
 │   │   ├── insights/              # /insights (Dashboard)
@@ -518,11 +495,11 @@ Tanren/
 │   │   │   └── search/            # /insights/search
 │   │   ├── review/                # /review (Mistake Review)
 │   │   └── api/
-│   │       ├── auth/              # /api/auth/{register,authenticate,logout,dev-login}
+│   │       ├── auth/              # /api/auth/github/{login,callback} + logout
 │   │       └── trpc/[trpc]/       # tRPC fetch handler
 │   ├── server/
 │   │   ├── trpc/                  # tRPC ルータ
-│   │   ├── auth/                  # Passkey (WebAuthn) セッション管理
+│   │   ├── auth/                  # GitHub OAuth + セッション管理 (ADR-0006)
 │   │   ├── scheduler/             # FSRS ロジック + daily / review / diagnostic / deep-dive 候補選定
 │   │   ├── generator/             # 問題生成
 │   │   ├── grader/                # 採点 + rebut + 誤概念抽出
@@ -533,7 +510,7 @@ Tanren/
 │   │   ├── seed/                  # 知識ツリー YAML
 │   │   └── client.ts
 │   ├── features/                  # フィーチャーモジュール
-│   │   ├── auth/                  # /login の Passkey 登録・認証 UI
+│   │   ├── auth/                  # /login の GitHub OAuth 入口 UI
 │   │   ├── home/                  # / の Home Screen
 │   │   ├── drill/                 # 出題 UI + rebut / copy-for-llm
 │   │   ├── custom/                # Custom Session 入力フロー
@@ -576,17 +553,18 @@ Tanren/
 
 ## 6.8. セキュリティ
 
-### 6.8.1. 認証 (Passkey, ADR-0004)
+### 6.8.1. 認証 (GitHub OAuth, ADR-0006)
 
-- WebAuthn Passkey のみ。パスワード / OAuth は採用しない
-- ライブラリ: `@simplewebauthn/server` + `@simplewebauthn/browser`
-- 登録/認証フロー
-  1. `POST /api/auth/register/options` → チャレンジを `webauthn_challenges` に保存して返す
-  2. ブラウザで `navigator.credentials.create()` または `.get()` → 署名
-  3. `POST /api/auth/register/verify` or `.../authenticate/verify` でサーバー検証
-  4. OK なら `sessions_auth` に行を挿入、HTTP-only cookie (`__Host-tanren_session`) 発行
+- **GitHub OAuth 2.0 Authorization Code + PKCE (S256)** のみ。他プロバイダ / パスワードは採用しない
+- ライブラリ: `fetch` + `zod` だけで実装 (外部 OAuth ライブラリ追加なし、CLAUDE.md §3)
+- 登録 / 認証フロー
+  1. `GET /api/auth/github/login` → `state` + `code_verifier` を short-lived cookie (`__Host-tanren_oauth_state`) に保存 → `github.com/login/oauth/authorize` に 302 リダイレクト
+  2. GitHub 側で同意後、`GET /api/auth/github/callback?code=...&state=...` に戻ってくる
+  3. callback で state 検証 → `github.com/login/oauth/access_token` に `code` + `code_verifier` を POST して token 取得 → `api.github.com/user` で GitHub user 情報取得 → `GITHUB_ALLOWED_USER_ID` と照合
+  4. OK なら `sessions_auth` に行を挿入、HTTP-only cookie (`__Host-tanren_session`) 発行 → `/` にリダイレクト
+- 失敗時は `/login?error=<code>` にリダイレクト、UI が短い日本語で原因を表示
 - セッション有効期限: 30 日 sliding (`last_active_at` 更新で延長)
-- 初期ユーザー作成は `pnpm run auth:bootstrap` で CLI から 1 度だけ
+- 初期ユーザー作成は `pnpm auth:bootstrap <github_user_id>` で CLI から 1 度だけ (`users.github_user_id` に許可 GitHub user id を紐付け)
 
 ### 6.8.2. 認可
 

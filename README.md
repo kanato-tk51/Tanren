@@ -25,7 +25,7 @@ pnpm dlx vercel login        # 初回のみ
 pnpm dlx vercel link         # 初回のみ、このディレクトリをプロジェクトに紐付け
 pnpm db:migrate              # Neon にスキーマ適用 (env は Vercel から自動注入)
 pnpm db:seed                 # 知識ツリー seed
-pnpm auth:bootstrap          # 初回のみ: 作者の user 行を作成
+pnpm auth:bootstrap <github_user_id> [displayName] [email]  # 初回のみ: 作者の user 行を作成 (ADR-0006)
 pnpm dev                     # vercel dev で http://localhost:3000
 ```
 
@@ -55,6 +55,7 @@ Tanren/
 
 ## 主要スクリプト (予定)
 
+<!-- prettier-ignore -->
 | コマンド | 内容 |
 |---|---|
 | `pnpm dev` | 開発サーバ |
@@ -72,7 +73,7 @@ Tanren/
 
 - **Next.js 15 (App Router)** + TypeScript strict + tRPC
 - **Neon (PostgreSQL 16+)** + Drizzle (ADR-0003)
-- **Passkey (WebAuthn)** 認証 (ADR-0004)
+- **GitHub OAuth** 認証 (ADR-0006、旧 ADR-0004 Passkey から置換)
 - **OpenAI API** (`gpt-5` / `gpt-5-mini`) (ADR-0005)
 - **shadcn/ui** + Tailwind
 - **Vitest** (テスト)
@@ -82,6 +83,7 @@ Tanren/
 
 設計ドキュメントは `docs/` に一式。
 
+<!-- prettier-ignore -->
 | # | ファイル | 内容 |
 |---|---|---|
 | 01 | [vision](./docs/01-vision.md) | プロダクトの目的 |

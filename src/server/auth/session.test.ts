@@ -1,4 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import "server-only";
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("server-only", () => ({}));
 
 vi.mock("next/headers", () => ({
   cookies: vi.fn(),
@@ -22,7 +26,7 @@ vi.mock("@/db/client", () => ({
   getDb: () => builders,
 }));
 
-import { DEV_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "./constants";
+import { SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "./constants";
 import { resolveSession } from "./session";
 
 function mockCookieStore(values: Record<string, string>) {
@@ -59,10 +63,6 @@ describe("resolveSession", () => {
     vi.clearAllMocks();
   });
 
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
   it("cookie がない場合は null", async () => {
     const result = await resolveSession(mockCookieStore({}));
     expect(result).toBeNull();
@@ -74,7 +74,7 @@ describe("resolveSession", () => {
     expect(result).toBeNull();
   });
 
-  it("有効なセッションなら user と sessionId を返し sliding expiry を更新 (passkey)", async () => {
+  it("有効なセッションなら user と sessionId を返し sliding expiry を更新", async () => {
     const fakeUser = { id: "u1", email: "x@example.com" };
     builders.select.mockReturnValue(
       fluentSelect([{ session: { id: "s1", userId: "u1" }, user: fakeUser }]),
@@ -87,33 +87,14 @@ describe("resolveSession", () => {
     const after = Date.now();
 
     expect(result?.user).toEqual(fakeUser);
-    expect(result?.kind).toBe("passkey");
     const expiresTs = capture.set!.expiresAt!.getTime();
     expect(expiresTs).toBeGreaterThanOrEqual(before + SESSION_MAX_AGE_MS - 1);
     expect(expiresTs).toBeLessThanOrEqual(after + SESSION_MAX_AGE_MS + 1);
   });
 
-  it("VERCEL_ENV=production では dev cookie は無視される (認証バイパス防止)", async () => {
-    vi.stubEnv("VERCEL_ENV", "production");
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("WEBAUTHN_RP_ID", "");
-    vi.stubEnv("WEBAUTHN_ORIGIN", "");
-    const result = await resolveSession(
-      mockCookieStore({ [DEV_SESSION_COOKIE_NAME]: "dev-smuggled" }),
-    );
-    // DB select すら走らずに null が返る
-    expect(result).toBeNull();
-    expect(builders.select).not.toHaveBeenCalled();
-  });
-
-  it("self-host 本番 (VERCEL_ENV 未設定, NODE_ENV=production) でも dev cookie は無視される", async () => {
-    vi.stubEnv("VERCEL_ENV", "");
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("WEBAUTHN_RP_ID", "");
-    vi.stubEnv("WEBAUTHN_ORIGIN", "");
-    const result = await resolveSession(
-      mockCookieStore({ [DEV_SESSION_COOKIE_NAME]: "dev-smuggled" }),
-    );
+  it("unknown cookie (旧 dev session 等) は無視される", async () => {
+    // ADR-0006 以降は SESSION_COOKIE_NAME 1 本のみ信用する。
+    const result = await resolveSession(mockCookieStore({ tanren_dev_session: "dev-smuggled" }));
     expect(result).toBeNull();
     expect(builders.select).not.toHaveBeenCalled();
   });

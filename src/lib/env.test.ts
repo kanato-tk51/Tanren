@@ -25,16 +25,4 @@ describe("env", () => {
     const { appUrl } = await import("./env");
     expect(appUrl).toBe("https://tanren-abc.vercel.app");
   });
-
-  it("passkeyEnabled reflects WEBAUTHN_RP_ID presence", async () => {
-    vi.stubEnv("WEBAUTHN_RP_ID", "localhost");
-    const { passkeyEnabled } = await import("./env");
-    expect(passkeyEnabled).toBe(true);
-  });
-
-  it("passkeyEnabled is false when WEBAUTHN_RP_ID is empty", async () => {
-    vi.stubEnv("WEBAUTHN_RP_ID", "");
-    const { passkeyEnabled } = await import("./env");
-    expect(passkeyEnabled).toBe(false);
-  });
 });

@@ -1,8 +1,11 @@
 # ADR-0004: 認証を Clerk → Passkey (WebAuthn) に変更
 
-- **Status**: Accepted
+- **Status**: Superseded by ADR-0006
 - **Date**: 2026-04-18
 - **Supersedes**: `docs/06-architecture.md` の認証節 + `OPEN_QUESTIONS.md` Q8
+- **Superseded by**: ADR-0006 (GitHub OAuth)
+
+> **Note**: 本 ADR は ADR-0006 (2026-04-19) に置き換えられた。rp_id=localhost のスコープ問題と初回登録 UI の欠落により体験ハードルが高く、個人 1 人運用のメリットが薄かった。詳細は ADR-0006 の Context 参照。以下は歴史的コンテキストとして残す。
 
 ## Context
 
@@ -77,17 +80,20 @@ CREATE TABLE webauthn_challenges (
 ## Consequences
 
 **Good:**
+
 - パスワード漏洩リスクゼロ、フィッシング耐性
 - Clerk への月額 0 円、外部依存 1 つ削減
 - 実装はシンプル (200 行程度)
 - セッション管理も自前なので完全にコントロール
 
 **Bad:**
+
 - Passkey 未対応のブラウザ / 端末に出会うとどうにもならない
   → 個人用なので実害なし。Chrome/Safari モダン版で動けば OK
 - 端末を全部なくすと詰む → Passkey は iCloud Keychain / Google Password Manager で同期される前提
 - 将来公開する気になったら **OAuth / Magic Link を追加** する必要
 
 **後戻りコスト:**
+
 - 公開前提に切り替わった時点で Auth.js / Clerk / Lucia に差し替え可能
 - セッション層のインタフェース (`getCurrentUser()` など) を薄く作っておけば影響は tRPC middleware 局所で済む

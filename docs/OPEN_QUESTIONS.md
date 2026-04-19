@@ -49,7 +49,7 @@
 
 ## Q8. ~~Clerk をやめて Lucia/NextAuth に寄せるか~~ (Closed)
 
-**解決済み**: ADR-0004 で Passkey (WebAuthn) + 自前セッションに確定。Clerk は不採用。
+**解決済み**: ADR-0004 で Passkey (WebAuthn) + 自前セッションに一度確定 → 2026-04-19 に ADR-0006 で GitHub OAuth に置き換え。外部 auth ライブラリ (Clerk / Auth.js / Lucia) はいずれも不採用。
 
 ## Q9. FSRS の自己評価 (1-5) を UI に出すか
 
@@ -81,4 +81,4 @@
 
 このセクションには「決着してドキュメントに畳み込んだ」論点を記録。
 
-- **Q8 (Clerk vs Lucia)** — 2026-04-18: ADR-0004 で Passkey 採用により全面解消
+- **Q8 (Clerk vs Lucia)** — 2026-04-18: ADR-0004 で Passkey 採用により全面解消 → 2026-04-19: ADR-0006 で GitHub OAuth に置き換え、結論は変わらず「外部 auth ライブラリは採用しない」

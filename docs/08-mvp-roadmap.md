@@ -18,7 +18,7 @@
 
 ### 8.2.1. 必須機能
 
-- Passkey (WebAuthn) 認証 — 自分のアカウントだけ使う想定 (ADR-0004)
+- GitHub OAuth 認証 — 自分のアカウントだけ使う想定 (ADR-0006、旧 ADR-0004 Passkey から置換)
 - 知識ツリー seed: **Tier 1 の 6 ドメイン × 17 concept ≒ 100 concept**
   - programming, dsa, network, db, tools, frontend を優先 (日常の Web 開発で毎日触る領域)
 - 問題タイプ: **mcq + short + written** の 3 つのみ
@@ -68,7 +68,7 @@
 
 **目標:** Hello World レベルのスケルトンを動かす
 
-- Next.js 15 + Neon + Drizzle + Passkey セットアップ
+- Next.js 15 + Neon + Drizzle + GitHub OAuth セットアップ
 - shadcn/ui 導入
 - ホーム画面表示 (ログイン済みユーザー情報)
 - tRPC 疎通確認
@@ -155,18 +155,19 @@
 - TypeScript / Tailwind / shadcn/ui 導入
 - Vercel にデプロイ (空のページで OK)
 
-### Day 2: 認証 (Passkey)
+### Day 2: 認証 (GitHub OAuth, ADR-0006)
 
-- `@simplewebauthn/server` + `@simplewebauthn/browser` 導入
-- `pnpm run auth:bootstrap` で初期 user 作成
-- Passkey 登録 → ログイン → セッション cookie 発行までが動く
+- GitHub Developer settings → OAuth Apps を 3 つ登録 (dev/preview/prod)
+- Client ID / Client Secret / `GITHUB_ALLOWED_USER_ID` を Vercel env に投入
+- `pnpm auth:bootstrap <github_user_id>` で初期 user 作成 (users.github_user_id に紐付け)
+- `/api/auth/github/login` → GitHub 認可 → callback → セッション cookie 発行までが動く
 - tRPC `protectedProcedure` でログイン必須ルートの保護
 
 ### Day 3: DB
 
 - Neon アカウント作成、プロジェクト作成 (dev branch + prod branch)
 - `@neondatabase/serverless` + Drizzle 導入
-- 初期スキーマ (users, credentials, sessions_auth, concepts, questions, attempts, mastery, sessions)
+- 初期スキーマ (users, sessions_auth, concepts, questions, attempts, mastery, sessions)
 - `pnpm db:generate` → `pnpm db:migrate` 実行
 
 ### Day 4: 知識ツリー Seed

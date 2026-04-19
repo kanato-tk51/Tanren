@@ -1,7 +1,7 @@
 /**
  * ランタイムで取り出す env 変数をここに集約。
  * - Production/Development は Vercel の Environment Variables から注入
- * - Preview は VERCEL_URL で動的に組み立てる値 (WEBAUTHN_* / APP_URL) があるので工夫が必要
+ * - Preview は VERCEL_URL で動的に組み立てる値 (appUrl) があるので工夫が必要
  */
 
 function required(name: string): string {
@@ -24,17 +24,8 @@ export const appUrl =
     ? `https://${process.env.VERCEL_URL}`
     : "http://localhost:3000");
 
-/** Passkey が有効かどうか (Preview などで WEBAUTHN_RP_ID 未設定なら false) */
-export const passkeyEnabled = Boolean(process.env.WEBAUTHN_RP_ID);
-
 export const env = {
   appUrl,
-  passkeyEnabled,
-  webauthn: {
-    rpId: process.env.WEBAUTHN_RP_ID,
-    rpName: process.env.WEBAUTHN_RP_NAME ?? "Tanren",
-    origin: process.env.WEBAUTHN_ORIGIN ?? appUrl,
-  },
   openaiApiKey: () => required("OPENAI_API_KEY"),
   databaseUrl: () => required("DATABASE_URL"),
   sessionCookieSecret: () => required("SESSION_COOKIE_SECRET"),
